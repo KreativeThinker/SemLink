@@ -1,0 +1,49 @@
+name: Documentation
+description: Missing, incorrect, or unclear documentation
+title: "[Docs]: "
+labels:
+  - type/docs
+body:
+  - type: textarea
+    id: issue
+    attributes:
+      label: Documentation Issue
+      description: What is missing or wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Location
+      description: File, section, or URL.
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Change
+      description: What should be written instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - priority/P0
+        - priority/P1
+        - priority/P2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Estimated Size
+      options:
+        - size/xs
+        - size/s
+        - size/m
+        - size/l
+        - size/xl

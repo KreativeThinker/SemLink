@@ -1,0 +1,61 @@
+name: Refactor
+description: Internal change without altering external behavior
+title: "[Refactor]: "
+labels:
+  - type/refactor
+  - status/needs-design
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this refactor necessary?
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current State
+      description: What is wrong with the current implementation?
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: Target State
+      description: What should the code look like after refactor?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: risks
+    attributes:
+      label: Risks
+      options:
+        - label: Performance impact
+        - label: Behavior regression
+        - label: API surface change
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - priority/P0
+        - priority/P1
+        - priority/P2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Estimated Size
+      options:
+        - size/xs
+        - size/s
+        - size/m
+        - size/l
+        - size/xl

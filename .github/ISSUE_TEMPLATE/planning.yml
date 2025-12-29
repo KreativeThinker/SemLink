@@ -1,0 +1,56 @@
+name: Plan
+description: High-level design, roadmap item, or investigation
+title: "[Plan]: "
+labels:
+  - type/plan
+  - status/needs-design
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What is the goal of this plan?
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Technical, time, or resource constraints.
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed Approach
+      description: High-level strategy, not implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: Deliverables
+      description: What concrete outcomes should exist?
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - priority/P0
+        - priority/P1
+        - priority/P2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Estimated Size
+      options:
+        - size/xs
+        - size/s
+        - size/m
+        - size/l
+        - size/xl
