@@ -1,0 +1,31 @@
+[project]
+name = "semlink"
+version = "0.1.0"
+description = "Automatic semantic note linking for graph visualization and quick topic access"
+readme = "README.md"
+authors = [{ name = "Anumeya", email = "sagely2005eagle@gmail.com" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.13"
+dependencies = ["rich>=14.2.0", "typer>=0.21.0"]
+
+[dependency-groups]
+dev = ["pre-commit>=4.5.1", "ruff>=0.14.10"]
+
+[project.scripts]
+semlink = "semlink.__main__:app"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+format = { quote-style = "double" }
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "pep440"
+version_provider = "uv"
+update_changelog_on_bump = true
