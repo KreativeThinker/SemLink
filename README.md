@@ -212,4 +212,4 @@ Deliverables:
 
 ## Contributing
 
-Please refer the guidelines as outlined in the [[contributing]] file
+Please refer the guidelines as outlined in the [CONTRIBUTING](/CONTRIBUTING.md) file
