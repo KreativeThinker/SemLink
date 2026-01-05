@@ -11,6 +11,10 @@ Graph-based note systems rely heavily on manual linking, which does not scale wi
 
 This project addresses the problem of automatically identifying and representing semantic relationships between notes without user intervention.
 
+Similar solutions around "Document linking" for human interpretablity fall short by focusing on purely key-word matching approaches like [this one](https://forum.obsidian.md/t/obsidian-note-linker-automatically-find-and-create-new-links-between-notes/41504)
+
+Some ideas for how to visualize the semantic linking is given [here](https://forum.obsidian.md/t/have-we-finally-figuredout-semantic-links-aka-how2-cultivate-complex-link-properties-for-visualising-distinct-relationships/86732) even though some of those are a bit over-the-top and would only constitute UI complexity which is to be avoided.
+
 ## Objectives
 - Infer semantic relationships between textual notes
 - Compare keyword-based and embedding-based similarity methods
