@@ -28,8 +28,10 @@ sbert = ["sentence-transformers>=3.0.0"]
 openai = ["openai>=1.35.0", "tiktoken>=0.7.0"]
 # Visualization (optional)
 viz = ["pyvis>=0.3.2", "matplotlib>=3.9.0"]
+# Web server for React frontend
+server = ["fastapi>=0.115.0", "uvicorn>=0.34.0"]
 # All optional features
-all = ["semlink[sbert,openai,viz]"]
+all = ["semlink[sbert,openai,viz,server]"]
 
 [dependency-groups]
 dev = ["pre-commit>=4.5.1", "ruff>=0.11.0", "pytest>=8.0.0"]

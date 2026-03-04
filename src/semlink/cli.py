@@ -1292,3 +1292,91 @@ def info() -> None:
     table3.add_row("window", "Very long documents")
 
     console.print(table3)
+
+
+# =============================================================================
+# Serve Command
+# =============================================================================
+
+
+@app.command()
+def serve(
+    db_path: Annotated[
+        Optional[Path],
+        typer.Option("--db", "-d", help="SQLite database path"),
+    ] = None,
+    graph_path: Annotated[
+        Optional[Path],
+        typer.Option("--graph", "-g", help="Graph JSON file path"),
+    ] = None,
+    host: Annotated[
+        str,
+        typer.Option("--host", "-h", help="Host to bind to"),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", "-p", help="Port to bind to"),
+    ] = 8000,
+    dev: Annotated[
+        bool,
+        typer.Option("--dev", help="Development mode (no static files)"),
+    ] = False,
+) -> None:
+    """
+    Start the web server for the React frontend.
+
+    Serves the graph visualization UI and REST API.
+    """
+    try:
+        import uvicorn
+
+        from semlink.server import create_app
+    except ImportError as e:
+        console.print(f"[red]Error:[/red] Missing dependency: {e}")
+        console.print("[dim]Install with: pip install semlink[server][/dim]")
+        raise typer.Exit(code=1)
+
+    # Find static directory (frontend build)
+    static_dir = None
+    if not dev:
+        # Check common locations for frontend build
+        possible_paths = [
+            Path(__file__).parent.parent.parent / "frontend" / "dist",
+            Path(__file__).parent / "static",
+            Path.cwd() / "frontend" / "dist",
+        ]
+        for p in possible_paths:
+            if p.exists() and (p / "index.html").exists():
+                static_dir = p
+                break
+
+    # Auto-detect db/graph if not specified
+    if not db_path and not graph_path:
+        if Path(".semlink.db").exists():
+            db_path = Path(".semlink.db")
+        elif Path("graph.json").exists():
+            graph_path = Path("graph.json")
+        elif Path("output/graph.json").exists():
+            graph_path = Path("output/graph.json")
+
+    console.print("[bold]Starting SemLink server...[/bold]")
+    if db_path:
+        console.print(f"[dim]Database: {db_path}[/dim]")
+    if graph_path:
+        console.print(f"[dim]Graph: {graph_path}[/dim]")
+    if static_dir:
+        console.print(f"[dim]Static files: {static_dir}[/dim]")
+    else:
+        console.print("[yellow]No static files found. API-only mode.[/yellow]")
+        console.print("[dim]Build frontend with: cd frontend && npm run build[/dim]")
+
+    console.print(f"\n[bold green]Server running at:[/bold green] http://{host}:{port}")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    app = create_app(
+        db_path=db_path,
+        graph_path=graph_path,
+        static_dir=static_dir,
+    )
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
