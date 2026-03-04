@@ -1,8 +1,10 @@
 # Smart Semantic Note Linking and Visualizer
 
 ## Abstract
-[RESEARCH THE INCREASE IN USAGE OF DIGITAL NOTE TAKING AND INSERT STATISTICS HERE]
-[Talk about applications like obsidian and include research on the topics of graphical visualization being helpful in note taking]
+
+The digital note-taking software market is experiencing significant growth, with projections reaching $1.35-1.5 billion by 2027-2028 at a CAGR of 5-7%. Knowledge workers are increasingly adopting tools like Obsidian, Roam Research, and Logseq for personal knowledge management. However, research shows that **28% of the workday is lost to technology-induced interruptions and information overload** (Karr-Wisniewski & Lu, 2010), costing the U.S. economy approximately **$588 billion annually**. A comprehensive review of 87 studies found that information overload is positively correlated with burnout and negatively impacts job satisfaction (Arnold et al., 2023).
+
+Graph-based visualization has emerged as a promising approach to knowledge management. Studies on knowledge graph visualization highlight the importance of intuitive interfaces for navigating complex information spaces (Li et al., 2023; Nararatwong et al., 2020). Tools like Obsidian leverage graph views to help users discover connections between notes, yet **manual linking does not scale** beyond a few hundred notes, leaving valuable relationships unexpressed.
 
 As the volume of digital notes increases, manually creating meaningful links between related concepts becomes impractical. This project investigates automated semantic note linking using Natural Language Processing techniques to infer contextual relationships between unstructured notes and represent them as a knowledge graph.
 
@@ -29,19 +31,28 @@ This project addresses the problem of automatically identifying and representing
 ```bash
 semlink/
 ├── .github/
-│   ├── ISSUE_TEMPLATE/       # Issue Templates
-│   └── workflows/
-│       └── package.yml       # Workflow to make installable package and publish to pypi.org
+│   ├── ISSUE_TEMPLATE/       # Issue Templates
+│   └── workflows/
+│       └── package.yml       # Workflow to make installable package and publish to pypi.org
 ├── docs/                     # Installation and usage documentation
 ├── research/                 # Research conducted over the course of this project
 ├── src/
-│   └── semlink/
-│       ├── core/             # Core logic
-│       │   └── __init__.py
-│       ├── cli.py            # CLI interface
-│       ├── errors.py         # Central Error System
-│       ├── __init__.py
-│       └── __main__.py
+│   └── semlink/
+│       ├── core/
+│       │   ├── __init__.py   # Public API exports
+│       │   ├── ingest.py     # Data ingestion and preprocessing
+│       │   ├── chunk.py      # Note segmentation strategies
+│       │   ├── tfidf.py      # TF-IDF baseline embeddings
+│       │   ├── embeddings.py # Neural embedding backends
+│       │   ├── linker.py     # Link inference strategies
+│       │   ├── graph.py      # Graph construction and export
+│       │   ├── analysis.py   # Graph metrics and communities
+│       │   ├── visualize.py  # Visualization outputs
+│       │   └── evaluate.py   # Method comparison
+│       ├── cli.py            # CLI interface
+│       ├── errors.py         # Central Error System
+│       ├── __init__.py
+│       └── __main__.py
 ├── .pre-commit-config.yaml   # pre-commit hooks
 ├── CONTRIBUTING.md
 ├── LICENSE
@@ -50,163 +61,64 @@ semlink/
 └── uv.lock                   # Installation lockfile
 ```
 
-This project will follow the legacy `src` package layout for all core development. All logic is to be written in the `src/semlink/core/<file>.py` and required functionality is to be exposed via the `src/semlink/cli.py`
+This project follows the `src` package layout. Core logic resides in `src/semlink/core/` modules, exposed via `src/semlink/cli.py`.
+
+## Installation
+
+```bash
+# Core installation (TF-IDF only, lightweight)
+pip install semlink
+
+# With neural embeddings (includes PyTorch)
+pip install semlink[sbert]
+
+# With OpenAI embeddings
+pip install semlink[openai]
+
+# With visualization
+pip install semlink[viz]
+
+# Everything
+pip install semlink[all]
+```
+
+## Quick Start
+
+```bash
+# View available commands
+semlink --help
+
+# View available models and strategies
+semlink info
+
+# Full pipeline (when implemented)
+semlink run ./my-vault --output ./output/
+```
 
 ---
 
-> Following are placeholder issues that will be migrated to the github issues panel along with a clearer instructions
+## Development Roadmap
 
-## 1. Data Ingestion and Preprocessing
+All modules have been planned and tracked as GitHub issues. See the [Issues](https://github.com/KreativeThinker/SemLink/issues) page for detailed task breakdowns.
 
-**Goal:** Standardize note input for downstream processing.
+| Module | Description | Issue | Priority |
+|--------|-------------|-------|----------|
+| 1. Data Ingestion | Load and preprocess markdown/text files | [#4](https://github.com/KreativeThinker/SemLink/issues/4) | P0 |
+| 2. Chunking | Note segmentation strategies | [#5](https://github.com/KreativeThinker/SemLink/issues/5) | P1 |
+| 3. TF-IDF | Baseline keyword similarity | [#6](https://github.com/KreativeThinker/SemLink/issues/6) | P0 |
+| 4. Embeddings | Neural embedding backends | [#7](https://github.com/KreativeThinker/SemLink/issues/7) | P0 |
+| 5. Link Inference | Convert similarity to edges | [#8](https://github.com/KreativeThinker/SemLink/issues/8) | P0 |
+| 6. Graph Construction | Build and export graphs | [#9](https://github.com/KreativeThinker/SemLink/issues/9) | P0 |
+| 7. Graph Analysis | Metrics and community detection | [#10](https://github.com/KreativeThinker/SemLink/issues/10) | P1 |
+| 8. Visualization | Interactive and static outputs | [#11](https://github.com/KreativeThinker/SemLink/issues/11) | P1 |
+| 9. Evaluation | Method comparison and reporting | [#12](https://github.com/KreativeThinker/SemLink/issues/12) | P2 |
 
-Tasks:
+## References
 
-* Load plain-text and Markdown files
-* Strip markup and normalize text
-* Handle file-level metadata (filename, path)
-* Store processed text representations
-
-Deliverables:
-
-* Preprocessing module
-* Sample input/output validation
-
----
-
-## 2. Note Segmentation (Chunking)
-
-**Goal:** Improve semantic resolution by operating on note segments.
-
-Tasks:
-
-* Implement whole-note representation
-* Implement paragraph-based segmentation
-* Store segment-to-note mappings
-
-Deliverables:
-
-* Chunking strategies with configurable parameters
-* Comparison-ready data structures
-
----
-
-## 3. Baseline Similarity: TF-IDF
-
-**Goal:** Establish a non-neural baseline.
-
-Tasks:
-
-* Build TF-IDF representations
-* Compute cosine similarity between notes or segments
-* Generate similarity matrix
-
-Deliverables:
-
-* Baseline similarity scores
-* Reproducible results for comparison
-
----
-
-## 4. Embedding-Based Similarity
-
-**Goal:** Capture semantic similarity beyond lexical overlap.
-
-Tasks:
-
-* Integrate pre-trained sentence/document embeddings
-* Generate vector representations for notes or segments
-* Compute cosine similarity
-
-Deliverables:
-
-* Embedding-based similarity matrices
-* Direct comparison with TF-IDF baseline
-
----
-
-## 5. Link Inference Strategy
-
-**Goal:** Convert similarity scores into graph edges.
-
-Tasks:
-
-* Implement similarity thresholding
-* Implement k-nearest-neighbor linking
-* Control graph sparsity
-
-Deliverables:
-
-* Configurable link inference logic
-* Edge list generation
-
----
-
-## 6. Graph Construction
-
-**Goal:** Represent inferred relationships formally.
-
-Tasks:
-
-* Construct graph from inferred links
-* Assign nodes and weighted edges
-* Export graph in standard format (e.g., NetworkX)
-
-Deliverables:
-
-* Graph object
-* Serialized graph output
-
----
-
-## 7. Graph Analysis
-
-**Goal:** Analyze structural properties of the note graph.
-
-Tasks:
-
-* Compute graph density and degree distribution
-* Identify connected components or clusters
-* Analyze central nodes
-
-Deliverables:
-
-* Quantitative graph metrics
-* Analysis scripts
-
----
-
-## 8. Evaluation and Comparison
-
-**Goal:** Evaluate semantic coherence and method effectiveness.
-
-Tasks:
-
-* Compare baseline vs embedding-based graphs
-* Analyze differences in connectivity and sparsity
-* Perform qualitative inspection on sampled links
-
-Deliverables:
-
-* Evaluation report
-* Plots or tables summarizing results
-
----
-
-## 9. Documentation and Reproducibility
-
-**Goal:** Ensure the project can be understood and rerun.
-
-Tasks:
-
-* Document configuration parameters
-* Describe experimental setup
-* Provide example datasets and commands
-
-Deliverables:
-
-* Updated README
-* Reproducibility notes
+- Arnold, M., Goldschmitt, M., & Rigotti, T. (2023). Dealing with information overload: A comprehensive review. *Frontiers in Psychology*, 14.
+- Karr-Wisniewski, P., & Lu, Y. (2010). When more is too much: Operationalizing technology overload. *Computers in Human Behavior*, 26(5), 1061-1072.
+- Li, H., et al. (2023). Knowledge graphs in practice: characterizing users, challenges, and visualization opportunities. *IEEE TVCG*.
+- Nararatwong, R., et al. (2020). Knowledge graph visualization: Challenges, framework, and implementation.
 
 ---
 
