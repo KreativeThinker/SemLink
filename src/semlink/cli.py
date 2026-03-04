@@ -264,6 +264,14 @@ def link(
         float,
         typer.Option("--threshold", "-t", help="Similarity threshold"),
     ] = 0.5,
+    min_weight: Annotated[
+        float,
+        typer.Option(
+            "--min-weight",
+            "-m",
+            help="Minimum edge weight to keep (filters weak links)",
+        ),
+    ] = 0.0,
 ) -> None:
     """
     Infer links between notes based on similarity.
@@ -276,11 +284,14 @@ def link(
         KNNStrategy,
         MutualKNNStrategy,
         ThresholdStrategy,
+        filter_edges,
     )
 
     try:
         console.print(f"[bold]Building graph from:[/bold] {embeddings_path}")
         console.print(f"[dim]Strategy: {strategy}, k={k}, threshold={threshold}[/dim]")
+        if min_weight > 0:
+            console.print(f"[dim]Minimum weight filter: {min_weight}[/dim]")
 
         if not embeddings_path.exists():
             console.print(f"[red]Error:[/red] File not found: {embeddings_path}")
@@ -322,6 +333,15 @@ def link(
             task = progress.add_task("Inferring links...", total=None)
             edges = linker.infer_links(embeddings, ids)
             progress.update(task, description=f"Found {len(edges)} links")
+
+        # Filter weak links if min_weight specified
+        if min_weight > 0:
+            original_count = len(edges)
+            edges = filter_edges(edges, min_weight=min_weight)
+            filtered_count = original_count - len(edges)
+            console.print(
+                f"[dim]Filtered {filtered_count} weak links (weight < {min_weight})[/dim]"
+            )
 
         console.print(f"[green]Inferred {len(edges)} links[/green]")
 
@@ -686,6 +706,10 @@ def run(
         float,
         typer.Option("--threshold", "-t", help="Similarity threshold"),
     ] = 0.5,
+    min_weight: Annotated[
+        float,
+        typer.Option("--min-weight", help="Minimum edge weight to keep"),
+    ] = 0.0,
     visualize_output: Annotated[
         bool,
         typer.Option("--visualize/--no-visualize", help="Generate visualization"),
@@ -702,12 +726,14 @@ def run(
     )
     from semlink.core.graph import build_graph, export_json
     from semlink.core.ingest import ingest_vault
-    from semlink.core.linker import HybridStrategy
+    from semlink.core.linker import HybridStrategy, filter_edges
 
     try:
         console.print(f"[bold]Running full pipeline on:[/bold] {vault_path}")
         console.print(f"[dim]Output directory: {output_dir}[/dim]")
         console.print(f"[dim]Method: {method}, k={k}, threshold={threshold}[/dim]")
+        if min_weight > 0:
+            console.print(f"[dim]Minimum weight filter: {min_weight}[/dim]")
 
         if not vault_path.is_dir():
             console.print(f"[red]Error:[/red] Not a directory: {vault_path}")
@@ -772,6 +798,16 @@ def run(
         console.print("\n[bold cyan]Step 3/5: Building graph...[/bold cyan]")
         linker = HybridStrategy(k=k, threshold=threshold)
         edges = linker.infer_links(embeddings, ids)
+
+        # Filter weak links if min_weight specified
+        if min_weight > 0:
+            original_count = len(edges)
+            edges = filter_edges(edges, min_weight=min_weight)
+            filtered_count = original_count - len(edges)
+            console.print(
+                f"[dim]Filtered {filtered_count} weak links (weight < {min_weight})[/dim]"
+            )
+
         nodes = [{"id": doc_id, "title": title} for doc_id, title in zip(ids, titles)]
         graph = build_graph(nodes, edges)
         console.print(
