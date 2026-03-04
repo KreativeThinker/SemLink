@@ -130,6 +130,15 @@ from semlink.core.evaluate import (
     similarity_distribution,
 )
 
+# Storage
+from semlink.core.storage import (
+    SemLinkDB,
+    StoredEdge,
+    StoredEmbedding,
+    StoredNote,
+    compute_file_hash,
+)
+
 __all__ = [
     # Ingest
     "Note",
@@ -232,4 +241,10 @@ __all__ = [
     "link_overlap",
     "generate_comparison_report",
     "generate_plots",
+    # Storage
+    "SemLinkDB",
+    "StoredNote",
+    "StoredEmbedding",
+    "StoredEdge",
+    "compute_file_hash",
 ]

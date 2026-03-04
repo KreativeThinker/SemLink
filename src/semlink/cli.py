@@ -877,6 +877,375 @@ def run(
 # =============================================================================
 
 
+# =============================================================================
+# Sync Command (Incremental Updates with SQLite)
+# =============================================================================
+
+
+@app.command()
+def sync(
+    vault_path: Annotated[
+        Path,
+        typer.Argument(help="Path to vault directory"),
+    ],
+    db_path: Annotated[
+        Path,
+        typer.Option("--db", "-d", help="SQLite database path"),
+    ] = Path(".semlink.db"),
+    method: Annotated[
+        str,
+        typer.Option("--method", "-m", help="Embedding method"),
+    ] = "tfidf",
+    k: Annotated[
+        int,
+        typer.Option("--k", help="Number of neighbors"),
+    ] = 7,
+    threshold: Annotated[
+        float,
+        typer.Option("--threshold", "-t", help="Similarity threshold"),
+    ] = 0.5,
+    min_weight: Annotated[
+        float,
+        typer.Option("--min-weight", help="Minimum edge weight to keep"),
+    ] = 0.0,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force full reprocessing"),
+    ] = False,
+) -> None:
+    """
+    Sync vault changes incrementally using SQLite storage.
+
+    Only processes new or modified notes, reusing cached embeddings.
+    """
+    from semlink.core.ingest import discover_notes, process_note
+    from semlink.core.linker import HybridStrategy, filter_edges
+    from semlink.core.storage import SemLinkDB, StoredEdge, compute_file_hash
+
+    try:
+        console.print(f"[bold]Syncing vault:[/bold] {vault_path}")
+        console.print(f"[dim]Database: {db_path}[/dim]")
+
+        if not vault_path.is_dir():
+            console.print(f"[red]Error:[/red] Not a directory: {vault_path}")
+            raise typer.Exit(code=1)
+
+        # Initialize database
+        db = SemLinkDB(db_path)
+
+        if force:
+            console.print("[yellow]Force mode: clearing existing data[/yellow]")
+            db.clear()
+
+        # Discover notes and compute hashes
+        console.print("[dim]Scanning for changes...[/dim]")
+        note_paths = discover_notes(vault_path)
+        file_hashes = {
+            str(p.relative_to(vault_path)): compute_file_hash(p) for p in note_paths
+        }
+
+        # Find changed notes
+        changed, deleted = db.get_changed_notes(file_hashes)
+
+        if deleted:
+            console.print(f"[dim]Removing {len(deleted)} deleted notes[/dim]")
+            for note_id in deleted:
+                db.delete_note(note_id)
+
+        if not changed and not deleted and not force:
+            stats = db.get_stats()
+            console.print("[green]Vault is up to date![/green]")
+            console.print(
+                f"[dim]Notes: {stats['notes']}, Edges: {sum(stats['edges'].values()) if stats['edges'] else 0}[/dim]"
+            )
+            return
+
+        # Process changed notes
+        if changed:
+            console.print(f"[bold]Processing {len(changed)} changed notes...[/bold]")
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Processing notes...", total=len(changed))
+
+                for note_rel_path in changed:
+                    note_path = vault_path / note_rel_path
+                    note = process_note(note_path)
+
+                    db.upsert_note(
+                        note_id=note.id,
+                        path=note_rel_path,
+                        title=note.metadata.title,
+                        content=note.raw_content,
+                        clean_content=note.clean_content,
+                        metadata={
+                            "title": note.metadata.title,
+                            "headings": note.metadata.headings,
+                            "links": note.metadata.links,
+                        },
+                        file_hash=file_hashes[note_rel_path],
+                    )
+                    progress.advance(task)
+
+        # Check for notes needing embeddings
+        notes_needing_emb = db.get_notes_without_embeddings(method)
+
+        if notes_needing_emb or changed:
+            console.print(
+                f"[bold]Generating embeddings for {len(notes_needing_emb) or len(changed)} notes...[/bold]"
+            )
+
+            # Get all notes for embedding
+            all_notes = db.get_all_notes()
+            ids = [n.id for n in all_notes]
+            texts = [n.clean_content for n in all_notes]
+
+            if method == "tfidf":
+                from semlink.core.tfidf import TFIDFEmbedder
+
+                embedder = TFIDFEmbedder()
+                embeddings = embedder.fit_encode(texts)
+            elif method == "sbert":
+                from semlink.core.embeddings import SBERTEmbedder
+
+                embedder = SBERTEmbedder()
+                embeddings = embedder.encode(texts)
+            elif method == "openai":
+                from semlink.core.embeddings import OpenAIEmbedder
+
+                embedder = OpenAIEmbedder()
+                embeddings = embedder.encode(texts)
+            else:
+                console.print(f"[red]Error:[/red] Unknown method: {method}")
+                raise typer.Exit(code=1)
+
+            # Save embeddings to database
+            for i, note_id in enumerate(ids):
+                db.save_embedding(note_id, method, embeddings[i])
+
+            console.print(f"[green]Embeddings cached ({embeddings.shape})[/green]")
+
+            # Build graph
+            console.print("[bold]Building graph...[/bold]")
+            linker = HybridStrategy(k=k, threshold=threshold)
+            edges = linker.infer_links(embeddings, ids)
+
+            # Filter weak links
+            if min_weight > 0:
+                original_count = len(edges)
+                edges = filter_edges(edges, min_weight=min_weight)
+                console.print(
+                    f"[dim]Filtered {original_count - len(edges)} weak links[/dim]"
+                )
+
+            # Save edges to database
+            stored_edges = [
+                StoredEdge(
+                    source_id=e.source,
+                    target_id=e.target,
+                    weight=e.weight,
+                    method=method,
+                    reason=e.reason,
+                    shared_terms=e.shared_terms or [],
+                )
+                for e in edges
+            ]
+            db.save_edges(stored_edges, method)
+
+            # Save state
+            db.set_state(
+                "last_sync",
+                {
+                    "method": method,
+                    "k": k,
+                    "threshold": threshold,
+                    "min_weight": min_weight,
+                },
+            )
+
+        # Show summary
+        stats = db.get_stats()
+        console.print("\n[bold green]Sync complete![/bold green]")
+
+        table = Table(title="Database Status")
+        table.add_column("Item", style="cyan")
+        table.add_column("Count", justify="right")
+
+        table.add_row("Notes", str(stats["notes"]))
+        for method_name, count in stats.get("embeddings", {}).items():
+            table.add_row(f"Embeddings ({method_name})", str(count))
+        for method_name, count in stats.get("edges", {}).items():
+            table.add_row(f"Edges ({method_name})", str(count))
+
+        console.print(table)
+
+    except ImportError as e:
+        console.print(f"[red]Import error:[/red] {e}")
+        raise typer.Exit(code=1)
+    except AppError as e:
+        console.print(f"[red]Error:[/red] {e}", style="red")
+        raise typer.Exit(code=1)
+
+
+# =============================================================================
+# Export Command (Export from SQLite)
+# =============================================================================
+
+
+@app.command(name="export")
+def export_db(
+    db_path: Annotated[
+        Path,
+        typer.Option("--db", "-d", help="SQLite database path"),
+    ] = Path(".semlink.db"),
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output file path"),
+    ] = Path("graph.json"),
+    method: Annotated[
+        Optional[str],
+        typer.Option("--method", "-m", help="Export edges for specific method"),
+    ] = None,
+    format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: json, graphml, gexf"),
+    ] = "json",
+) -> None:
+    """
+    Export graph from SQLite database.
+
+    Exports stored notes and edges to various graph formats.
+    """
+    from semlink.core.graph import build_graph, export_gexf, export_graphml, export_json
+    from semlink.core.storage import SemLinkDB
+
+    try:
+        if not db_path.exists():
+            console.print(f"[red]Error:[/red] Database not found: {db_path}")
+            console.print("[dim]Run 'semlink sync' first to create the database[/dim]")
+            raise typer.Exit(code=1)
+
+        db = SemLinkDB(db_path)
+        stats = db.get_stats()
+
+        if stats["notes"] == 0:
+            console.print("[red]Error:[/red] Database is empty")
+            raise typer.Exit(code=1)
+
+        console.print(f"[bold]Exporting from:[/bold] {db_path}")
+
+        # Get notes and edges
+        notes = db.get_all_notes()
+        edges = db.get_edges(method)
+
+        if not edges:
+            msg = "[yellow]Warning:[/yellow] No edges found"
+            if method:
+                msg += f" for method '{method}'"
+            console.print(msg)
+
+        # Build graph
+        from semlink.core.linker import Edge
+
+        node_list = [{"id": n.id, "title": n.title} for n in notes]
+        edge_list = [
+            Edge(
+                source=e.source_id,
+                target=e.target_id,
+                weight=e.weight,
+                method=e.method,
+                reason=e.reason,
+                shared_terms=e.shared_terms,
+            )
+            for e in edges
+        ]
+
+        graph = build_graph(node_list, edge_list)
+
+        # Export
+        output.parent.mkdir(parents=True, exist_ok=True)
+
+        if format == "json":
+            export_json(graph, output)
+        elif format == "graphml":
+            export_graphml(graph, output)
+        elif format == "gexf":
+            export_gexf(graph, output)
+        else:
+            console.print(f"[red]Error:[/red] Unknown format: {format}")
+            raise typer.Exit(code=1)
+
+        console.print(f"[bold green]Exported to:[/bold green] {output}")
+        console.print(
+            f"[dim]Nodes: {graph.number_of_nodes()}, Edges: {graph.number_of_edges()}[/dim]"
+        )
+
+    except AppError as e:
+        console.print(f"[red]Error:[/red] {e}", style="red")
+        raise typer.Exit(code=1)
+
+
+# =============================================================================
+# Status Command
+# =============================================================================
+
+
+@app.command()
+def status(
+    db_path: Annotated[
+        Path,
+        typer.Option("--db", "-d", help="SQLite database path"),
+    ] = Path(".semlink.db"),
+) -> None:
+    """
+    Show database status and statistics.
+    """
+    from semlink.core.storage import SemLinkDB
+
+    if not db_path.exists():
+        console.print(f"[yellow]No database found at:[/yellow] {db_path}")
+        console.print("[dim]Run 'semlink sync <vault>' to create one[/dim]")
+        return
+
+    db = SemLinkDB(db_path)
+    stats = db.get_stats()
+    last_sync = db.get_state("last_sync", {})
+
+    console.print(f"[bold]Database:[/bold] {db_path}")
+    console.print()
+
+    table = Table(title="Storage Statistics")
+    table.add_column("Item", style="cyan")
+    table.add_column("Value", justify="right")
+
+    table.add_row("Notes", str(stats["notes"]))
+
+    if stats.get("embeddings"):
+        for method, count in stats["embeddings"].items():
+            table.add_row(f"Embeddings ({method})", str(count))
+    else:
+        table.add_row("Embeddings", "0")
+
+    if stats.get("edges"):
+        for method, count in stats["edges"].items():
+            table.add_row(f"Edges ({method})", str(count))
+    else:
+        table.add_row("Edges", "0")
+
+    console.print(table)
+
+    if last_sync:
+        console.print()
+        console.print("[bold]Last sync settings:[/bold]")
+        console.print(f"[dim]Method: {last_sync.get('method', 'N/A')}[/dim]")
+        console.print(
+            f"[dim]k: {last_sync.get('k', 'N/A')}, threshold: {last_sync.get('threshold', 'N/A')}[/dim]"
+        )
+
+
 @app.command()
 def info() -> None:
     """
