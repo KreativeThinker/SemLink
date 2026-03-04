@@ -8,7 +8,7 @@ various strategies like thresholding and k-nearest neighbors.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -24,6 +24,8 @@ class Edge:
     target: str
     weight: float
     method: str  # 'threshold', 'knn', 'mutual_knn', 'hybrid'
+    reason: str | None = None  # Explanation for why this link exists
+    shared_terms: list[str] = field(default_factory=list)  # Common keywords/topics
 
     def to_tuple(self) -> tuple[str, str, float]:
         """Return as (source, target, weight) tuple."""
@@ -31,12 +33,17 @@ class Edge:
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
-        return {
+        result = {
             "source": self.source,
             "target": self.target,
             "weight": self.weight,
             "method": self.method,
         }
+        if self.reason:
+            result["reason"] = self.reason
+        if self.shared_terms:
+            result["shared_terms"] = self.shared_terms
+        return result
 
 
 class LinkStrategy(ABC):
@@ -460,3 +467,94 @@ def edge_list_stats(edges: list[Edge]) -> dict:
         "mean_weight": sum(weights) / len(weights),
         "methods": list(set(e.method for e in edges)),
     }
+
+
+def add_reasoning_to_edges(
+    edges: list[Edge],
+    ids: list[str],
+    embeddings: NDArray[np.float32],
+    embedder: object,  # TFIDFEmbedder or similar with get_shared_terms method
+    top_terms: int = 5,
+) -> list[Edge]:
+    """
+    Add reasoning/explanation to edges based on shared terms.
+
+    Uses TF-IDF shared terms to explain why documents are linked.
+
+    Args:
+        edges: List of edges to enrich
+        ids: Document IDs (same order as embeddings)
+        embeddings: TF-IDF embedding matrix
+        embedder: Fitted TFIDFEmbedder with get_shared_terms method
+        top_terms: Number of shared terms to include
+
+    Returns:
+        Edges with reason and shared_terms populated
+    """
+    # Create ID to index mapping
+    id_to_idx = {doc_id: idx for idx, doc_id in enumerate(ids)}
+
+    for edge in edges:
+        src_idx = id_to_idx.get(edge.source)
+        tgt_idx = id_to_idx.get(edge.target)
+
+        if src_idx is None or tgt_idx is None:
+            continue
+
+        # Get shared terms if embedder supports it
+        if hasattr(embedder, "get_shared_terms"):
+            shared = embedder.get_shared_terms(
+                src_idx, tgt_idx, embeddings, top_n=top_terms
+            )
+            edge.shared_terms = [term for term, _ in shared]
+
+            if edge.shared_terms:
+                # Generate human-readable reason
+                terms_str = ", ".join(edge.shared_terms[:3])
+                edge.reason = f"Related via shared concepts: {terms_str}"
+            else:
+                edge.reason = f"Semantic similarity ({edge.weight:.2f})"
+        else:
+            edge.reason = f"Semantic similarity ({edge.weight:.2f})"
+
+    return edges
+
+
+def generate_link_explanation(
+    edge: Edge,
+    include_weight: bool = True,
+    include_terms: bool = True,
+) -> str:
+    """
+    Generate a human-readable explanation for a link.
+
+    Args:
+        edge: Edge to explain
+        include_weight: Include similarity weight
+        include_terms: Include shared terms
+
+    Returns:
+        Human-readable explanation string
+    """
+    parts = []
+
+    if edge.reason:
+        parts.append(edge.reason)
+    elif edge.shared_terms and include_terms:
+        terms = ", ".join(edge.shared_terms[:5])
+        parts.append(f"Documents share common themes: {terms}")
+
+    if include_weight:
+        strength = (
+            "strong"
+            if edge.weight > 0.7
+            else "moderate"
+            if edge.weight > 0.4
+            else "weak"
+        )
+        parts.append(f"{strength} similarity ({edge.weight:.2%})")
+
+    if edge.method:
+        parts.append(f"detected via {edge.method}")
+
+    return " - ".join(parts) if parts else "Semantically related"

@@ -53,9 +53,11 @@ from semlink.core.linker import (
     LinkStrategy,
     MutualKNNStrategy,
     ThresholdStrategy,
+    add_reasoning_to_edges,
     compute_similarity_matrix,
     edge_list_stats,
     filter_edges,
+    generate_link_explanation,
     get_strategy as get_link_strategy,
     list_strategies as list_link_strategies,
 )
@@ -172,6 +174,8 @@ __all__ = [
     "compute_similarity_matrix",
     "filter_edges",
     "edge_list_stats",
+    "add_reasoning_to_edges",
+    "generate_link_explanation",
     # Graph
     "build_graph",
     "add_node_attributes",

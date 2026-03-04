@@ -40,14 +40,18 @@ def build_graph(
         attrs = {k: v for k, v in node.items() if k != "id"}
         graph.add_node(node_id, **attrs)
 
-    # Add edges
+    # Add edges with all available attributes
     for edge in edges:
-        graph.add_edge(
-            edge.source,
-            edge.target,
-            weight=edge.weight,
-            method=edge.method,
-        )
+        edge_attrs = {
+            "weight": edge.weight,
+            "method": edge.method,
+        }
+        if edge.reason:
+            edge_attrs["reason"] = edge.reason
+        if edge.shared_terms:
+            edge_attrs["shared_terms"] = edge.shared_terms
+
+        graph.add_edge(edge.source, edge.target, **edge_attrs)
 
     return graph
 
