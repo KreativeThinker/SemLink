@@ -71,24 +71,53 @@ def extract_topic_keywords(
     if not texts:
         return []
 
-    # Combine texts and extract keywords
-    combined = " ".join(texts)
-
-    embedder = TFIDFEmbedder(max_features=1000, min_df=1, max_df=0.95)
-    embedder.fit_encode([combined])
-
-    # Get feature names and their scores
-    if embedder.vectorizer is None:
+    # Filter out empty texts
+    texts = [t for t in texts if t and t.strip()]
+    if not texts:
         return []
 
-    feature_names = embedder.vectorizer.get_feature_names_out()
-    tfidf_matrix = embedder.vectorizer.transform([combined])
+    # Combine texts and extract keywords
+    combined = " ".join(texts)
+    if not combined.strip():
+        return []
 
-    # Get top keywords by TF-IDF score
-    scores = tfidf_matrix.toarray()[0]
-    top_indices = scores.argsort()[-n_keywords:][::-1]
+    try:
+        # Use min_df=1 and max_df=1.0 since we're fitting on a single combined document
+        # This avoids the "max_df corresponds to < documents than min_df" error
+        embedder = TFIDFEmbedder(
+            max_features=1000,
+            min_df=1,
+            max_df=1.0,  # Allow terms in all documents (we only have 1)
+            ngram_range=(1, 1),  # Only unigrams for keywords
+        )
+        embedder.fit_encode([combined])
 
-    return [feature_names[i] for i in top_indices if scores[i] > 0]
+        # Get feature names and their scores
+        if embedder.vectorizer is None:
+            return []
+
+        feature_names = embedder.vectorizer.get_feature_names_out()
+        tfidf_matrix = embedder.vectorizer.transform([combined])
+
+        # Get top keywords by TF-IDF score
+        scores = tfidf_matrix.toarray()[0]
+        top_indices = scores.argsort()[-n_keywords:][::-1]
+
+        return [str(feature_names[i]) for i in top_indices if scores[i] > 0]
+    except Exception:
+        # Fall back to simple word frequency if TF-IDF fails
+        words = combined.lower().split()
+        word_counts: dict[str, int] = {}
+        for word in words:
+            # Filter short words and common stop words
+            if len(word) > 3 and word.isalpha():
+                word_counts[word] = word_counts.get(word, 0) + 1
+
+        if not word_counts:
+            return []
+
+        sorted_words = sorted(word_counts.items(), key=lambda x: -x[1])
+        return [w[0] for w in sorted_words[:n_keywords]]
 
 
 def generate_topic_label(keywords: list[str], note_titles: list[str]) -> str:

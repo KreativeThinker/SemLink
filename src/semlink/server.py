@@ -117,9 +117,31 @@ def _compute_topics_for_graph(
     }
 
 
+def _load_notes_from_file(notes_path: Path) -> dict[str, dict[str, Any]]:
+    """Load notes from JSON file and return as dict."""
+    import orjson
+
+    if not notes_path.exists():
+        return {}
+
+    data = orjson.loads(notes_path.read_bytes())
+    notes_list = data.get("notes", data) if isinstance(data, dict) else data
+
+    return {
+        n["id"]: {
+            "title": n.get("metadata", {}).get("title", n.get("id", "")),
+            "content": n.get("raw_content", ""),
+            "clean_content": n.get("clean_content", ""),
+        }
+        for n in notes_list
+        if isinstance(n, dict) and "id" in n
+    }
+
+
 def create_app(
     db_path: Path | None = None,
     graph_path: Path | None = None,
+    notes_path: Path | None = None,
     static_dir: Path | None = None,
 ) -> FastAPI:
     """
@@ -128,6 +150,7 @@ def create_app(
     Args:
         db_path: Path to SQLite database (optional)
         graph_path: Path to graph JSON file (optional)
+        notes_path: Path to notes JSON file (optional, for content with graph files)
         static_dir: Path to static files directory (frontend build)
     """
     app = FastAPI(
@@ -148,6 +171,12 @@ def create_app(
     # Store config in app state
     app.state.db_path = db_path
     app.state.graph_path = graph_path
+    app.state.notes_path = notes_path
+
+    # Pre-load notes if path provided
+    app.state.notes_cache = {}
+    if notes_path and notes_path.exists():
+        app.state.notes_cache = _load_notes_from_file(notes_path)
 
     @app.get("/api/graph", response_model=GraphResponse)
     async def get_graph(
@@ -229,15 +258,20 @@ def create_app(
             # Compute topics for graph file
             note_to_topic: dict[str, int] = {}
             topic_labels: dict[int, str] = {}
+            notes_cache = app.state.notes_cache
+
             if include_topics and graph.number_of_nodes() > 0:
-                notes_dict = {
-                    node: {
-                        "title": data.get("title", node),
-                        "content": data.get("content", ""),
-                        "clean_content": data.get("content", ""),
-                    }
-                    for node, data in graph.nodes(data=True)
-                }
+                # Build notes dict - prefer cached notes for content
+                notes_dict = {}
+                for node, data in graph.nodes(data=True):
+                    if node in notes_cache:
+                        notes_dict[node] = notes_cache[node]
+                    else:
+                        notes_dict[node] = {
+                            "title": data.get("title", node),
+                            "content": data.get("content", ""),
+                            "clean_content": data.get("content", ""),
+                        }
                 topic_data = _compute_topics_for_graph(graph, notes_dict)
                 note_to_topic = topic_data["note_to_topic"]
                 topic_labels = topic_data["topic_labels"]
@@ -349,15 +383,18 @@ def create_app(
             if graph.number_of_nodes() == 0:
                 return TopicsResponse(topics=[], note_to_topic={}, orphan_notes=[])
 
-            # Build notes dict from graph
-            notes_dict = {
-                node: {
-                    "title": data.get("title", node),
-                    "content": data.get("content", ""),
-                    "clean_content": data.get("content", ""),
-                }
-                for node, data in graph.nodes(data=True)
-            }
+            # Build notes dict - prefer cached notes for content
+            notes_cache = app.state.notes_cache
+            notes_dict = {}
+            for node, data in graph.nodes(data=True):
+                if node in notes_cache:
+                    notes_dict[node] = notes_cache[node]
+                else:
+                    notes_dict[node] = {
+                        "title": data.get("title", node),
+                        "content": data.get("content", ""),
+                        "clean_content": data.get("content", ""),
+                    }
 
             # Compute topics
             aggregation = aggregate_by_topic(

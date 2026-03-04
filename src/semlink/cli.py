@@ -1460,6 +1460,10 @@ def serve(
         Optional[Path],
         typer.Option("--graph", "-g", help="Graph JSON file path"),
     ] = None,
+    notes_path: Annotated[
+        Optional[Path],
+        typer.Option("--notes", "-n", help="Notes JSON file path (for content)"),
+    ] = None,
     host: Annotated[
         str,
         typer.Option("--host", "-h", help="Host to bind to"),
@@ -1501,7 +1505,7 @@ def serve(
                 static_dir = p
                 break
 
-    # Auto-detect db/graph if not specified
+    # Auto-detect db/graph/notes if not specified
     if not db_path and not graph_path:
         if Path(".semlink.db").exists():
             db_path = Path(".semlink.db")
@@ -1510,11 +1514,27 @@ def serve(
         elif Path("output/graph.json").exists():
             graph_path = Path("output/graph.json")
 
+    # Auto-detect notes.json for content (when using graph files)
+    if not notes_path and graph_path:
+        # Try to find notes.json near graph.json
+        graph_dir = graph_path.parent
+        possible_notes = [
+            graph_dir / "notes.json",
+            Path("notes.json"),
+            Path("output/notes.json"),
+        ]
+        for p in possible_notes:
+            if p.exists():
+                notes_path = p
+                break
+
     console.print("[bold]Starting SemLink server...[/bold]")
     if db_path:
         console.print(f"[dim]Database: {db_path}[/dim]")
     if graph_path:
         console.print(f"[dim]Graph: {graph_path}[/dim]")
+    if notes_path:
+        console.print(f"[dim]Notes: {notes_path}[/dim]")
     if static_dir:
         console.print(f"[dim]Static files: {static_dir}[/dim]")
     else:
@@ -1527,6 +1547,7 @@ def serve(
     app = create_app(
         db_path=db_path,
         graph_path=graph_path,
+        notes_path=notes_path,
         static_dir=static_dir,
     )
 
