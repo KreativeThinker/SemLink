@@ -1,12 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ForceGraph, SidePanel, ControlPanel } from './components';
-import { useGraphData } from './hooks';
+import { ForceGraph, SidePanel, ControlPanel, TopicPanel } from './components';
+import { useGraphData, useTopics } from './hooks';
 import type { GraphNode, FilterOptions } from './types';
 
 function App() {
   const { data, stats, communities, loading, error, loadFromFile } = useGraphData();
+  const { topics, orphanNotes, loading: topicsLoading } = useTopics();
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterOptions>({
     minWeight: 0,
     community: null,
@@ -15,6 +17,27 @@ function App() {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync selectedTopic with filters.community
+  useEffect(() => {
+    if (selectedTopic !== filters.community) {
+      setFilters((prev) => ({ ...prev, community: selectedTopic }));
+    }
+  }, [selectedTopic]);
+
+  // Handle topic selection from TopicPanel
+  const handleTopicSelect = useCallback((topicId: number | null) => {
+    setSelectedTopic(topicId);
+  }, []);
+
+  // Handle filter changes from ControlPanel
+  const handleFiltersChange = useCallback((newFilters: FilterOptions) => {
+    setFilters(newFilters);
+    // Sync topic selection
+    if (newFilters.community !== selectedTopic) {
+      setSelectedTopic(newFilters.community);
+    }
+  }, [selectedTopic]);
 
   // Handle resize
   useEffect(() => {
@@ -59,6 +82,13 @@ function App() {
     },
     [loadFromFile]
   );
+
+  // Get topic label for hovered node
+  const getTopicLabel = (node: GraphNode) => {
+    if (node.topic_label) return node.topic_label;
+    const topic = topics.find((t) => t.id === node.community);
+    return topic?.label || (node.community !== undefined ? `Topic ${node.community}` : null);
+  };
 
   return (
     <div
@@ -122,16 +152,25 @@ function App() {
               filters={filters}
               stats={stats}
               communities={communities}
-              onFiltersChange={setFilters}
+              topics={topics}
+              onFiltersChange={handleFiltersChange}
+            />
+
+            <TopicPanel
+              topics={topics}
+              orphanNotes={orphanNotes}
+              selectedTopic={selectedTopic}
+              onTopicSelect={handleTopicSelect}
+              loading={topicsLoading}
             />
 
             {/* Hover tooltip */}
             {hoveredNode && !selectedNode && (
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-800/95 backdrop-blur px-4 py-2 rounded-lg shadow-xl border border-slate-700">
                 <span className="text-white font-medium">{hoveredNode.title}</span>
-                {hoveredNode.community !== undefined && (
+                {getTopicLabel(hoveredNode) && (
                   <span className="ml-2 text-xs text-slate-400">
-                    Community {hoveredNode.community}
+                    {getTopicLabel(hoveredNode)}
                   </span>
                 )}
               </div>

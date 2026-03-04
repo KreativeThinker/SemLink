@@ -15,6 +15,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import networkx as nx
+
+from semlink.core.aggregate import aggregate_by_topic
 from semlink.core.graph import load_json
 from semlink.core.storage import SemLinkDB
 
@@ -26,12 +29,92 @@ class GraphResponse(BaseModel):
     edges: list[dict[str, Any]]
 
 
+class TopicResponse(BaseModel):
+    """Single topic data."""
+
+    id: int
+    label: str
+    keywords: list[str]
+    note_ids: list[str]
+    note_titles: list[str]
+    size: int
+    central_notes: list[str]
+
+
+class TopicsResponse(BaseModel):
+    """All topics data for frontend."""
+
+    topics: list[TopicResponse]
+    note_to_topic: dict[str, int]
+    orphan_notes: list[str]
+
+
 class StatsResponse(BaseModel):
     """Database statistics."""
 
     notes: int
     embeddings: dict[str, int]
     edges: dict[str, int]
+
+
+def _build_graph_from_db(db: SemLinkDB, method: str | None = None) -> nx.Graph:
+    """Build a NetworkX graph from database."""
+    graph = nx.Graph()
+    notes = db.get_all_notes()
+    edges = db.get_edges(method)
+
+    # Add nodes
+    for note in notes:
+        graph.add_node(
+            note.id,
+            title=note.title,
+            content=note.clean_content[:500] if note.clean_content else "",
+        )
+
+    # Add edges
+    for edge in edges:
+        graph.add_edge(
+            edge.source_id,
+            edge.target_id,
+            weight=edge.weight,
+            reason=edge.reason,
+            shared_terms=edge.shared_terms,
+        )
+
+    return graph
+
+
+def _compute_topics_for_graph(
+    graph: nx.Graph,
+    notes_dict: dict[str, dict[str, Any]],
+    resolution: float = 1.0,
+) -> dict[str, Any]:
+    """Compute topic aggregation for a graph."""
+    if graph.number_of_nodes() == 0:
+        return {
+            "topics": [],
+            "note_to_topic": {},
+            "orphan_notes": [],
+            "topic_labels": {},
+        }
+
+    aggregation = aggregate_by_topic(
+        graph=graph,
+        notes=notes_dict,
+        min_cluster_size=2,
+        resolution=resolution,
+        n_keywords=5,
+    )
+
+    # Build topic_id -> label mapping
+    topic_labels = {t.id: t.label for t in aggregation.topics}
+
+    return {
+        "topics": aggregation.topics,
+        "note_to_topic": aggregation.note_to_topic,
+        "orphan_notes": aggregation.orphan_notes,
+        "topic_labels": topic_labels,
+    }
 
 
 def create_app(
@@ -72,22 +155,58 @@ def create_app(
         min_weight: Annotated[
             float, Query(description="Minimum edge weight", ge=0, le=1)
         ] = 0.0,
+        include_topics: Annotated[
+            bool, Query(description="Include topic labels on nodes")
+        ] = True,
     ) -> GraphResponse:
         """Get graph data for visualization."""
         # Try database first
         if app.state.db_path and Path(app.state.db_path).exists():
             db = SemLinkDB(app.state.db_path)
-            notes = db.get_all_notes()
+            db_notes = db.get_all_notes()
             edges = db.get_edges(method)
 
-            nodes = [
-                {
+            # Build graph for topic detection
+            graph = _build_graph_from_db(db, method)
+
+            # Compute topics if requested
+            note_to_topic: dict[str, int] = {}
+            topic_labels: dict[int, str] = {}
+            if include_topics and graph.number_of_nodes() > 0:
+                notes_dict = {
+                    n.id: {
+                        "title": n.title,
+                        "content": n.content,
+                        "clean_content": n.clean_content,
+                    }
+                    for n in db_notes
+                }
+                topic_data = _compute_topics_for_graph(graph, notes_dict)
+                note_to_topic = topic_data["note_to_topic"]
+                topic_labels = topic_data["topic_labels"]
+
+            # Compute centrality
+            try:
+                centrality = nx.pagerank(graph)
+            except Exception:
+                centrality = {n: 0.0 for n in graph.nodes()}
+
+            nodes = []
+            for n in db_notes:
+                topic_id = note_to_topic.get(n.id)
+                node_data = {
                     "id": n.id,
                     "title": n.title,
                     "content": n.clean_content[:500] if n.clean_content else None,
+                    "community": topic_id,
+                    "centrality": centrality.get(n.id, 0.0),
                 }
-                for n in notes
-            ]
+                if topic_id is not None:
+                    node_data["topic_id"] = topic_id
+                    node_data["topic_label"] = topic_labels.get(
+                        topic_id, f"Topic {topic_id}"
+                    )
+                nodes.append(node_data)
 
             edge_list = [
                 {
@@ -107,15 +226,45 @@ def create_app(
         if app.state.graph_path and Path(app.state.graph_path).exists():
             graph = load_json(app.state.graph_path)
 
-            nodes = [
-                {
+            # Compute topics for graph file
+            note_to_topic: dict[str, int] = {}
+            topic_labels: dict[int, str] = {}
+            if include_topics and graph.number_of_nodes() > 0:
+                notes_dict = {
+                    node: {
+                        "title": data.get("title", node),
+                        "content": data.get("content", ""),
+                        "clean_content": data.get("content", ""),
+                    }
+                    for node, data in graph.nodes(data=True)
+                }
+                topic_data = _compute_topics_for_graph(graph, notes_dict)
+                note_to_topic = topic_data["note_to_topic"]
+                topic_labels = topic_data["topic_labels"]
+
+            # Compute centrality
+            try:
+                centrality = nx.pagerank(graph)
+            except Exception:
+                centrality = {n: 0.0 for n in graph.nodes()}
+
+            nodes = []
+            for node, data in graph.nodes(data=True):
+                topic_id = note_to_topic.get(node)
+                node_data = {
                     "id": node,
                     "title": data.get("title", node),
-                    "community": data.get("community"),
-                    "centrality": data.get("centrality"),
+                    "community": topic_id
+                    if topic_id is not None
+                    else data.get("community"),
+                    "centrality": centrality.get(node, data.get("centrality", 0.0)),
                 }
-                for node, data in graph.nodes(data=True)
-            ]
+                if topic_id is not None:
+                    node_data["topic_id"] = topic_id
+                    node_data["topic_label"] = topic_labels.get(
+                        topic_id, f"Topic {topic_id}"
+                    )
+                nodes.append(node_data)
 
             edge_list = [
                 {
@@ -130,6 +279,113 @@ def create_app(
             ]
 
             return GraphResponse(nodes=nodes, edges=edge_list)
+
+        raise HTTPException(status_code=404, detail="No graph data available")
+
+    @app.get("/api/topics", response_model=TopicsResponse)
+    async def get_topics(
+        method: Annotated[str | None, Query(description="Filter by method")] = None,
+        resolution: Annotated[
+            float, Query(description="Topic detection resolution", ge=0.1, le=3.0)
+        ] = 1.0,
+        min_cluster_size: Annotated[
+            int, Query(description="Minimum notes per topic", ge=1)
+        ] = 2,
+    ) -> TopicsResponse:
+        """Get detected topics from the graph."""
+        # Try database first
+        if app.state.db_path and Path(app.state.db_path).exists():
+            db = SemLinkDB(app.state.db_path)
+            db_notes = db.get_all_notes()
+
+            # Build graph
+            graph = _build_graph_from_db(db, method)
+
+            if graph.number_of_nodes() == 0:
+                return TopicsResponse(topics=[], note_to_topic={}, orphan_notes=[])
+
+            # Build notes dict for aggregation
+            notes_dict = {
+                n.id: {
+                    "title": n.title,
+                    "content": n.content,
+                    "clean_content": n.clean_content,
+                }
+                for n in db_notes
+            }
+
+            # Compute topics
+            aggregation = aggregate_by_topic(
+                graph=graph,
+                notes=notes_dict,
+                min_cluster_size=min_cluster_size,
+                resolution=resolution,
+                n_keywords=5,
+            )
+
+            topics = [
+                TopicResponse(
+                    id=t.id,
+                    label=t.label,
+                    keywords=t.keywords,
+                    note_ids=t.note_ids,
+                    note_titles=t.note_titles,
+                    size=t.size,
+                    central_notes=t.central_notes,
+                )
+                for t in aggregation.topics
+            ]
+
+            return TopicsResponse(
+                topics=topics,
+                note_to_topic=aggregation.note_to_topic,
+                orphan_notes=aggregation.orphan_notes,
+            )
+
+        # Fall back to graph file
+        if app.state.graph_path and Path(app.state.graph_path).exists():
+            graph = load_json(app.state.graph_path)
+
+            if graph.number_of_nodes() == 0:
+                return TopicsResponse(topics=[], note_to_topic={}, orphan_notes=[])
+
+            # Build notes dict from graph
+            notes_dict = {
+                node: {
+                    "title": data.get("title", node),
+                    "content": data.get("content", ""),
+                    "clean_content": data.get("content", ""),
+                }
+                for node, data in graph.nodes(data=True)
+            }
+
+            # Compute topics
+            aggregation = aggregate_by_topic(
+                graph=graph,
+                notes=notes_dict,
+                min_cluster_size=min_cluster_size,
+                resolution=resolution,
+                n_keywords=5,
+            )
+
+            topics = [
+                TopicResponse(
+                    id=t.id,
+                    label=t.label,
+                    keywords=t.keywords,
+                    note_ids=t.note_ids,
+                    note_titles=t.note_titles,
+                    size=t.size,
+                    central_notes=t.central_notes,
+                )
+                for t in aggregation.topics
+            ]
+
+            return TopicsResponse(
+                topics=topics,
+                note_to_topic=aggregation.note_to_topic,
+                orphan_notes=aggregation.orphan_notes,
+            )
 
         raise HTTPException(status_code=404, detail="No graph data available")
 

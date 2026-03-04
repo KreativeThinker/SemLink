@@ -8,6 +8,8 @@ export interface GraphNode {
   content?: string;
   community?: number;
   centrality?: number;
+  topic_id?: number;
+  topic_label?: string;
   x?: number;
   y?: number;
   fx?: number | null;
@@ -53,4 +55,24 @@ export interface GraphStats {
   edgeCount: number;
   communities: number;
   avgWeight: number;
+}
+
+/**
+ * Topic types for semantic grouping
+ */
+
+export interface Topic {
+  id: number;
+  label: string;
+  keywords: string[];
+  note_ids: string[];
+  note_titles: string[];
+  size: number;
+  central_notes: string[];
+}
+
+export interface TopicsData {
+  topics: Topic[];
+  note_to_topic: Record<string, number>;
+  orphan_notes: string[];
 }
