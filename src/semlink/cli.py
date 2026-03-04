@@ -210,12 +210,14 @@ def embed(
             )
             raise typer.Exit(code=1)
 
-        # Save embeddings
+        # Save embeddings with titles for visualization
+        titles = [note.metadata.title for note in notes]
         output.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(
             output,
             embeddings=embeddings,
             ids=np.array(ids, dtype=object),
+            titles=np.array(titles, dtype=object),
             method=method,
         )
 
@@ -288,6 +290,8 @@ def link(
         data = np.load(embeddings_path, allow_pickle=True)
         embeddings = data["embeddings"]
         ids = list(data["ids"])
+        # Load titles if available (for visualization)
+        titles = list(data["titles"]) if "titles" in data else None
 
         console.print(
             f"[dim]Loaded {len(ids)} embeddings with shape {embeddings.shape}[/dim]"
@@ -321,8 +325,13 @@ def link(
 
         console.print(f"[green]Inferred {len(edges)} links[/green]")
 
-        # Build graph
-        nodes = [{"id": doc_id} for doc_id in ids]
+        # Build graph with titles for visualization
+        if titles:
+            nodes = [
+                {"id": doc_id, "title": title} for doc_id, title in zip(ids, titles)
+            ]
+        else:
+            nodes = [{"id": doc_id} for doc_id in ids]
         graph = build_graph(nodes, edges)
 
         # Export graph
@@ -748,20 +757,22 @@ def run(
             f"[green]Generated embeddings with shape {embeddings.shape}[/green]"
         )
 
-        # Save embeddings
+        # Save embeddings with titles for visualization
+        titles = [note.metadata.title for note in notes]
         emb_path = output_dir / "embeddings.npz"
         np.savez_compressed(
             emb_path,
             embeddings=embeddings,
             ids=np.array(ids, dtype=object),
+            titles=np.array(titles, dtype=object),
             method=method,
         )
 
-        # Step 3: Build graph
+        # Step 3: Build graph with titles
         console.print("\n[bold cyan]Step 3/5: Building graph...[/bold cyan]")
         linker = HybridStrategy(k=k, threshold=threshold)
         edges = linker.infer_links(embeddings, ids)
-        nodes = [{"id": doc_id} for doc_id in ids]
+        nodes = [{"id": doc_id, "title": title} for doc_id, title in zip(ids, titles)]
         graph = build_graph(nodes, edges)
         console.print(
             f"[green]Created graph with {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges[/green]"
