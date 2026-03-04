@@ -1246,6 +1246,157 @@ def status(
         )
 
 
+# =============================================================================
+# Aggregate Command
+# =============================================================================
+
+
+@app.command()
+def aggregate(
+    graph_path: Annotated[
+        Path,
+        typer.Argument(help="Path to graph JSON file"),
+    ],
+    notes_path: Annotated[
+        Path,
+        typer.Option("--notes", "-n", help="Path to notes JSON file"),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output directory"),
+    ] = Path("topics"),
+    format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: markdown, json, obsidian"),
+    ] = "markdown",
+    min_size: Annotated[
+        int,
+        typer.Option("--min-size", help="Minimum cluster size to form a topic"),
+    ] = 2,
+    resolution: Annotated[
+        float,
+        typer.Option(
+            "--resolution", "-r", help="Louvain resolution (higher = more topics)"
+        ),
+    ] = 1.0,
+    keywords: Annotated[
+        int,
+        typer.Option("--keywords", "-k", help="Number of keywords per topic"),
+    ] = 5,
+) -> None:
+    """
+    Aggregate notes into topics based on community detection.
+
+    Groups semantically related notes and generates topic summaries.
+    """
+    from semlink.core.aggregate import (
+        aggregate_by_topic,
+        export_topics_json,
+        export_topics_markdown,
+        export_topics_obsidian,
+    )
+    from semlink.core.graph import load_json
+    from semlink.core.ingest import NoteStore
+
+    try:
+        console.print("[bold]Aggregating notes into topics[/bold]")
+        console.print(f"[dim]Graph: {graph_path}[/dim]")
+        console.print(f"[dim]Notes: {notes_path}[/dim]")
+
+        if not graph_path.exists():
+            console.print(f"[red]Error:[/red] Graph file not found: {graph_path}")
+            raise typer.Exit(code=1)
+
+        if not notes_path.exists():
+            console.print(f"[red]Error:[/red] Notes file not found: {notes_path}")
+            raise typer.Exit(code=1)
+
+        # Load graph and notes
+        graph = load_json(graph_path)
+        store = NoteStore.load(notes_path)
+
+        # Convert notes to dict format
+        notes_dict = {
+            note.id: {
+                "title": note.metadata.title,
+                "content": note.raw_content,
+                "clean_content": note.clean_content,
+            }
+            for note in store.all()
+        }
+
+        console.print(
+            f"[dim]Loaded {graph.number_of_nodes()} nodes, {len(notes_dict)} notes[/dim]"
+        )
+
+        # Perform aggregation
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Detecting topics...", total=None)
+            aggregation = aggregate_by_topic(
+                graph,
+                notes_dict,
+                min_cluster_size=min_size,
+                resolution=resolution,
+                n_keywords=keywords,
+            )
+            progress.update(task, description="Topics detected")
+
+        console.print(f"[green]Found {len(aggregation.topics)} topics[/green]")
+        if aggregation.orphan_notes:
+            console.print(
+                f"[dim]{len(aggregation.orphan_notes)} notes not in any topic[/dim]"
+            )
+
+        # Show topic summary
+        table = Table(title="Topics")
+        table.add_column("ID", style="cyan", justify="right")
+        table.add_column("Label", style="white")
+        table.add_column("Notes", justify="right")
+        table.add_column("Keywords", style="dim")
+
+        for topic in aggregation.topics[:10]:  # Show top 10
+            table.add_row(
+                str(topic.id),
+                topic.label,
+                str(topic.size),
+                ", ".join(topic.keywords[:3]),
+            )
+
+        if len(aggregation.topics) > 10:
+            table.add_row("...", f"({len(aggregation.topics) - 10} more)", "", "")
+
+        console.print(table)
+
+        # Export
+        output.mkdir(parents=True, exist_ok=True)
+
+        if format == "markdown":
+            files = export_topics_markdown(aggregation, notes_dict, output)
+            console.print(
+                f"[bold green]Exported {len(files)} files to:[/bold green] {output}"
+            )
+        elif format == "json":
+            json_path = output / "topics.json"
+            export_topics_json(aggregation, json_path)
+            console.print(f"[bold green]Exported to:[/bold green] {json_path}")
+        elif format == "obsidian":
+            export_topics_obsidian(aggregation, notes_dict, output)
+            console.print(
+                f"[bold green]Exported Obsidian vault to:[/bold green] {output}"
+            )
+        else:
+            console.print(f"[red]Error:[/red] Unknown format: {format}")
+            raise typer.Exit(code=1)
+
+    except AppError as e:
+        console.print(f"[red]Error:[/red] {e}", style="red")
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def info() -> None:
     """

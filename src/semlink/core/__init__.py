@@ -139,6 +139,18 @@ from semlink.core.storage import (
     compute_file_hash,
 )
 
+# Topic Aggregation
+from semlink.core.aggregate import (
+    Topic,
+    TopicAggregation,
+    aggregate_by_topic,
+    export_topics_json,
+    export_topics_markdown,
+    export_topics_obsidian,
+    extract_topic_keywords,
+    generate_topic_label,
+)
+
 __all__ = [
     # Ingest
     "Note",
@@ -247,4 +259,13 @@ __all__ = [
     "StoredEmbedding",
     "StoredEdge",
     "compute_file_hash",
+    # Aggregation
+    "Topic",
+    "TopicAggregation",
+    "aggregate_by_topic",
+    "extract_topic_keywords",
+    "generate_topic_label",
+    "export_topics_markdown",
+    "export_topics_json",
+    "export_topics_obsidian",
 ]
