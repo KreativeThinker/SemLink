@@ -558,3 +558,149 @@ def generate_link_explanation(
         parts.append(f"detected via {edge.method}")
 
     return " - ".join(parts) if parts else "Semantically related"
+
+
+def create_hard_link_edges(
+    notes: list[dict],
+    weight: float = 1.0,
+) -> list[Edge]:
+    """
+    Create edges from explicit wiki-style links in notes.
+
+    Hard links are [[wiki-style]] links that authors explicitly created.
+    These represent intentional connections and are assigned high weight.
+
+    Args:
+        notes: List of note dicts with 'id', 'metadata.links', and 'metadata.title'
+        weight: Weight to assign to hard links (default 1.0 = 100%)
+
+    Returns:
+        List of Edge objects for explicit links
+    """
+    edges: list[Edge] = []
+    edge_set: set[tuple[str, str]] = set()
+
+    # Build lookup maps: title -> id, filename -> id
+    title_to_id: dict[str, str] = {}
+    filename_to_id: dict[str, str] = {}
+
+    for note in notes:
+        note_id = note.get("id")
+        if not note_id:
+            continue
+
+        metadata = note.get("metadata", {})
+        title = metadata.get("title", "")
+        filename = metadata.get("filename", "")
+
+        if title:
+            # Normalize title for lookup (lowercase, stripped)
+            title_to_id[title.lower().strip()] = note_id
+        if filename:
+            # Also map filename without extension
+            filename_to_id[filename.lower()] = note_id
+            stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+            filename_to_id[stem.lower()] = note_id
+
+    # Process each note's explicit links
+    for note in notes:
+        source_id = note.get("id")
+        if not source_id:
+            continue
+
+        metadata = note.get("metadata", {})
+        links = metadata.get("links", [])
+
+        for link_text in links:
+            # Normalize link target
+            normalized = link_text.lower().strip()
+
+            # Try to resolve link to a note ID
+            target_id = title_to_id.get(normalized) or filename_to_id.get(normalized)
+
+            if target_id and target_id != source_id:
+                # Create canonical edge (smaller id first)
+                src, tgt = (
+                    (source_id, target_id)
+                    if source_id < target_id
+                    else (target_id, source_id)
+                )
+                edge_key = (src, tgt)
+
+                if edge_key not in edge_set:
+                    edge_set.add(edge_key)
+                    edges.append(
+                        Edge(
+                            source=src,
+                            target=tgt,
+                            weight=weight,
+                            method="hard_link",
+                            reason=f"Explicit link: [[{link_text}]]",
+                        )
+                    )
+
+    return edges
+
+
+def merge_edges(
+    semantic_edges: list[Edge],
+    hard_link_edges: list[Edge],
+    hard_link_boost: float = 0.2,
+) -> list[Edge]:
+    """
+    Merge semantic edges with hard link edges.
+
+    When both a semantic link and hard link exist between the same nodes,
+    the semantic weight is boosted. Hard-only links are included at full weight.
+
+    Args:
+        semantic_edges: Edges from semantic similarity
+        hard_link_edges: Edges from explicit [[wiki]] links
+        hard_link_boost: Amount to boost semantic weight when hard link exists
+
+    Returns:
+        Merged list of edges
+    """
+    # Index semantic edges
+    semantic_dict: dict[tuple[str, str], Edge] = {}
+    for edge in semantic_edges:
+        key = (edge.source, edge.target)
+        semantic_dict[key] = edge
+
+    # Index hard links
+    hard_link_dict: dict[tuple[str, str], Edge] = {}
+    for edge in hard_link_edges:
+        key = (edge.source, edge.target)
+        hard_link_dict[key] = edge
+
+    merged: list[Edge] = []
+    seen: set[tuple[str, str]] = set()
+
+    # Process semantic edges, boosting where hard links exist
+    for key, edge in semantic_dict.items():
+        seen.add(key)
+
+        if key in hard_link_dict:
+            hard_edge = hard_link_dict[key]
+            # Boost weight and update method
+            boosted_weight = min(1.0, edge.weight + hard_link_boost)
+            reason = f"{edge.reason or 'Semantic similarity'}; {hard_edge.reason}"
+            merged.append(
+                Edge(
+                    source=edge.source,
+                    target=edge.target,
+                    weight=boosted_weight,
+                    method="hybrid+hard_link",
+                    reason=reason,
+                    shared_terms=edge.shared_terms,
+                )
+            )
+        else:
+            merged.append(edge)
+
+    # Add hard-link-only edges
+    for key, edge in hard_link_dict.items():
+        if key not in seen:
+            merged.append(edge)
+
+    return merged

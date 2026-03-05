@@ -272,11 +272,27 @@ def link(
             help="Minimum edge weight to keep (filters weak links)",
         ),
     ] = 0.0,
+    notes_path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--notes",
+            "-n",
+            help="Notes JSON file to include hard links ([[wiki-style]])",
+        ),
+    ] = None,
+    include_hard_links: Annotated[
+        bool,
+        typer.Option(
+            "--hard-links/--no-hard-links",
+            help="Include explicit [[wiki-style]] links from notes",
+        ),
+    ] = True,
 ) -> None:
     """
     Infer links between notes based on similarity.
 
-    Converts embeddings into a knowledge graph.
+    Converts embeddings into a knowledge graph. When --notes is provided,
+    explicit [[wiki-style]] links are included as hard links with weight=1.0.
     """
     from semlink.core.graph import build_graph, export_json
     from semlink.core.linker import (
@@ -284,7 +300,9 @@ def link(
         KNNStrategy,
         MutualKNNStrategy,
         ThresholdStrategy,
+        create_hard_link_edges,
         filter_edges,
+        merge_edges,
     )
 
     try:
@@ -324,15 +342,55 @@ def link(
             )
             raise typer.Exit(code=1)
 
-        # Infer links
+        # Infer semantic links
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            task = progress.add_task("Inferring links...", total=None)
-            edges = linker.infer_links(embeddings, ids)
-            progress.update(task, description=f"Found {len(edges)} links")
+            task = progress.add_task("Inferring semantic links...", total=None)
+            semantic_edges = linker.infer_links(embeddings, ids)
+            progress.update(
+                task, description=f"Found {len(semantic_edges)} semantic links"
+            )
+
+        # Load hard links from notes if provided
+        hard_link_edges: list = []
+        notes_data: list = []
+
+        # Auto-detect notes.json if not specified
+        if notes_path is None and include_hard_links:
+            for candidate in [Path("notes.json"), Path("output/notes.json")]:
+                if candidate.exists():
+                    notes_path = candidate
+                    break
+
+        if notes_path and include_hard_links:
+            if notes_path.exists():
+                import orjson
+
+                notes_json = orjson.loads(notes_path.read_bytes())
+                notes_data = (
+                    notes_json.get("notes", notes_json)
+                    if isinstance(notes_json, dict)
+                    else notes_json
+                )
+                hard_link_edges = create_hard_link_edges(notes_data)
+                if hard_link_edges:
+                    console.print(
+                        f"[dim]Found {len(hard_link_edges)} hard links from [[wiki-style]] references[/dim]"
+                    )
+            else:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Notes file not found: {notes_path}"
+                )
+
+        # Merge semantic and hard link edges
+        if hard_link_edges:
+            edges = merge_edges(semantic_edges, hard_link_edges)
+            console.print(f"[green]Total edges after merge: {len(edges)}[/green]")
+        else:
+            edges = semantic_edges
 
         # Filter weak links if min_weight specified
         if min_weight > 0:
@@ -342,8 +400,6 @@ def link(
             console.print(
                 f"[dim]Filtered {filtered_count} weak links (weight < {min_weight})[/dim]"
             )
-
-        console.print(f"[green]Inferred {len(edges)} links[/green]")
 
         # Build graph with titles for visualization
         if titles:
@@ -714,11 +770,19 @@ def run(
         bool,
         typer.Option("--visualize/--no-visualize", help="Generate visualization"),
     ] = True,
+    include_hard_links: Annotated[
+        bool,
+        typer.Option(
+            "--hard-links/--no-hard-links",
+            help="Include explicit [[wiki-style]] links from notes",
+        ),
+    ] = True,
 ) -> None:
     """
     Run full pipeline: ingest -> embed -> link -> analyze -> visualize.
 
     Convenience command for processing a vault end-to-end.
+    Includes hard links ([[wiki-style]]) by default.
     """
     from semlink.core.analysis import (
         compute_metrics,
@@ -726,7 +790,12 @@ def run(
     )
     from semlink.core.graph import build_graph, export_json
     from semlink.core.ingest import ingest_vault
-    from semlink.core.linker import HybridStrategy, filter_edges
+    from semlink.core.linker import (
+        HybridStrategy,
+        create_hard_link_edges,
+        filter_edges,
+        merge_edges,
+    )
 
     try:
         console.print(f"[bold]Running full pipeline on:[/bold] {vault_path}")
@@ -797,7 +866,32 @@ def run(
         # Step 3: Build graph with titles
         console.print("\n[bold cyan]Step 3/5: Building graph...[/bold cyan]")
         linker = HybridStrategy(k=k, threshold=threshold)
-        edges = linker.infer_links(embeddings, ids)
+        semantic_edges = linker.infer_links(embeddings, ids)
+        console.print(f"[dim]Found {len(semantic_edges)} semantic links[/dim]")
+
+        # Include hard links from explicit [[wiki-style]] references
+        if include_hard_links:
+            notes_dicts = [
+                {
+                    "id": note.id,
+                    "metadata": {
+                        "title": note.metadata.title,
+                        "filename": note.metadata.filename,
+                        "links": note.metadata.links,
+                    },
+                }
+                for note in notes
+            ]
+            hard_link_edges = create_hard_link_edges(notes_dicts)
+            if hard_link_edges:
+                console.print(
+                    f"[dim]Found {len(hard_link_edges)} hard links from [[wiki-style]] references[/dim]"
+                )
+                edges = merge_edges(semantic_edges, hard_link_edges)
+            else:
+                edges = semantic_edges
+        else:
+            edges = semantic_edges
 
         # Filter weak links if min_weight specified
         if min_weight > 0:

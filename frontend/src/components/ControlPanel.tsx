@@ -130,7 +130,7 @@ export function ControlPanel({
         {/* Reset */}
         <button
           onClick={() =>
-            onFiltersChange({ minWeight: 0, community: null, searchQuery: '' })
+            onFiltersChange({ minWeight: 0.15, community: null, searchQuery: '' })
           }
           className="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded transition-colors"
         >
@@ -158,6 +158,27 @@ export function ControlPanel({
           </div>
         </div>
       )}
+
+      {/* Link Legend */}
+      <div className="p-4 border-t border-slate-700">
+        <p className="text-xs font-medium text-slate-300 mb-2">Link Types</p>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-xs">
+            <div className="w-6 h-0.5 bg-slate-400 shrink-0" />
+            <span className="text-slate-400">Semantic similarity</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <div className="w-6 h-0.5 bg-cyan-400 shrink-0" />
+            <span className="text-slate-400">Semantic + hard link</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <svg className="w-6 h-2 shrink-0" viewBox="0 0 24 8">
+              <line x1="0" y1="4" x2="24" y2="4" stroke="#22d3ee" strokeWidth="2" strokeDasharray="4,2" />
+            </svg>
+            <span className="text-slate-400">Hard link only [[wiki]]</span>
+          </div>
+        </div>
+      </div>
 
       {/* Help */}
       <div className="p-4 border-t border-slate-700">

@@ -131,9 +131,29 @@ export function ForceGraph({
       .selectAll('line')
       .data(edges as D3Edge[])
       .join('line')
-      .attr('stroke', '#94a3b8')
-      .attr('stroke-opacity', d => Math.max(0.2, d.weight))
-      .attr('stroke-width', d => Math.max(1, d.weight * 3));
+      .attr('stroke', d => {
+        // Hard links are shown in a distinct color
+        if (d.method === 'hard_link' || d.method === 'hybrid+hard_link') {
+          return '#22d3ee'; // cyan for hard links
+        }
+        return '#94a3b8';
+      })
+      .attr('stroke-opacity', d => Math.max(0.3, d.weight))
+      .attr('stroke-width', d => {
+        // Hard links are slightly thicker
+        const baseWidth = Math.max(1, d.weight * 3);
+        if (d.method === 'hard_link' || d.method === 'hybrid+hard_link') {
+          return baseWidth + 1;
+        }
+        return baseWidth;
+      })
+      .attr('stroke-dasharray', d => {
+        // Pure hard links (no semantic similarity) are dashed
+        if (d.method === 'hard_link') {
+          return '5,3';
+        }
+        return null;
+      });
 
     // Create nodes
     const node = container.append('g')

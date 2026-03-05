@@ -10,7 +10,7 @@ function App() {
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterOptions>({
-    minWeight: 0,
+    minWeight: 0.15, // Default to 15% to filter weak/noisy links
     community: null,
     searchQuery: '',
   });

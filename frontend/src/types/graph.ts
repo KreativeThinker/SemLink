@@ -20,6 +20,7 @@ export interface GraphEdge {
   source: string | GraphNode;
   target: string | GraphNode;
   weight: number;
+  method?: string; // 'threshold', 'knn', 'hybrid', 'hard_link', 'hybrid+hard_link'
   reason?: string;
   shared_terms?: string[];
 }
@@ -40,6 +41,7 @@ export interface D3Edge {
   source: D3Node;
   target: D3Node;
   weight: number;
+  method?: string;
   reason?: string;
   shared_terms?: string[];
 }
