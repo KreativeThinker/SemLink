@@ -53,7 +53,7 @@ def ingest(
     extensions: Annotated[
         str,
         typer.Option("--ext", help="File extensions to process (comma-separated)"),
-    ] = ".md,.txt",
+    ] = ".md,.txt,.pdf,.docx",
 ) -> None:
     """
     Ingest notes from a vault directory.

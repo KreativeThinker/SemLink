@@ -12,6 +12,8 @@ dependencies = [
     "typer>=0.15.0",
     # Preprocessing
     "markdown-it-py>=3.0.0",
+    "pypdf>=4.2.0",
+    "python-docx>=1.1.0",
     # Core (lightweight)
     "scikit-learn>=1.5.0",
     "numpy>=2.0.0",
