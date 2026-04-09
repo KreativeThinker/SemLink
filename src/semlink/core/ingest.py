@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 import os
+import fnmatch
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +22,19 @@ from markdown_it import MarkdownIt
 if TYPE_CHECKING:
     from markdown_it.token import Token
 
-EXCLUDED_DIRS = {".git", "node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", "topics"}
+# High-priority directories to never traverse
+EXCLUDED_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "env", "__pycache__", 
+    "dist", "build", "target", ".idea", ".vscode", ".pytest_cache",
+    ".ipynb_checkpoints", "obj", "bin"
+}
+
+# Specific filenames or patterns that add semantic noise
+EXCLUDED_FILE_PATTERNS = {
+    "LICENSE*", "COPYING*", "*.lock", "package-lock.json", 
+    "pnpm-lock.yaml", "uv.lock", ".DS_Store", "Thumbs.db",
+    "*.pyc", "*.pyo", "*.so", "*.exe", "*.dll"
+}
 
 @dataclass
 class NoteMetadata:
@@ -89,10 +102,18 @@ def discover_notes(
     if not vault_path.is_dir():
         raise NotADirectoryError(f"Vault path is not a directory: {vault_path}")
 
-    for root, dirs, files in os.walk(vault_path):
+    for root, dirs, files in os.walk(vault_path, topdown=True):
         dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not d.startswith(".")]
         
         for file in files:
+            # Skip hidden files (e.g., .env)
+            if file.startswith("."):
+                continue
+                
+            # Skip noise files matching our exclusion patterns
+            if any(fnmatch.fnmatch(file, pattern) for pattern in EXCLUDED_FILE_PATTERNS):
+                continue
+
             path = Path(root) / file
             if path.suffix.lower() in extensions:
                 yield path
