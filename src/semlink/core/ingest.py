@@ -24,17 +24,40 @@ if TYPE_CHECKING:
 
 # High-priority directories to never traverse
 EXCLUDED_DIRS = {
-    ".git", "node_modules", ".venv", "venv", "env", "__pycache__", 
-    "dist", "build", "target", ".idea", ".vscode", ".pytest_cache",
-    ".ipynb_checkpoints", "obj", "bin"
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    "dist",
+    "build",
+    "target",
+    ".idea",
+    ".vscode",
+    ".pytest_cache",
+    ".ipynb_checkpoints",
+    "obj",
+    "bin",
 }
 
 # Specific filenames or patterns that add semantic noise
 EXCLUDED_FILE_PATTERNS = {
-    "LICENSE*", "COPYING*", "*.lock", "package-lock.json", 
-    "pnpm-lock.yaml", "uv.lock", ".DS_Store", "Thumbs.db",
-    "*.pyc", "*.pyo", "*.so", "*.exe", "*.dll"
+    "LICENSE*",
+    "COPYING*",
+    "*.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.pyc",
+    "*.pyo",
+    "*.so",
+    "*.exe",
+    "*.dll",
 }
+
 
 @dataclass
 class NoteMetadata:
@@ -104,14 +127,16 @@ def discover_notes(
 
     for root, dirs, files in os.walk(vault_path, topdown=True):
         dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not d.startswith(".")]
-        
+
         for file in files:
             # Skip hidden files (e.g., .env)
             if file.startswith("."):
                 continue
-                
+
             # Skip noise files matching our exclusion patterns
-            if any(fnmatch.fnmatch(file, pattern) for pattern in EXCLUDED_FILE_PATTERNS):
+            if any(
+                fnmatch.fnmatch(file, pattern) for pattern in EXCLUDED_FILE_PATTERNS
+            ):
                 continue
 
             path = Path(root) / file
@@ -144,6 +169,7 @@ def load_note(path: Path) -> str:
 
     if suffix == ".pdf":
         import pypdf
+
         reader = pypdf.PdfReader(path)
         # Extract text from all pages and join with double newlines to simulate paragraphs
         text = [page.extract_text() for page in reader.pages]
@@ -151,6 +177,7 @@ def load_note(path: Path) -> str:
 
     if suffix == ".docx":
         import docx
+
         doc = docx.Document(path)
         # Extract paragraphs that actually contain text
         return "\n\n".join([p.text for p in doc.paragraphs if p.text.strip()])
