@@ -1,2 +1,15 @@
-.python-version
+# Local test data
+test_output/
+test_vault/
+.semlink.db
+lib/
+
+# Python artifacts
 __pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/

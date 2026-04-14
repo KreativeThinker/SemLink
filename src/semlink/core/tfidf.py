@@ -196,7 +196,55 @@ class TFIDFEmbedder:
             if doc_vector[idx] > 0
         ]
 
-    def save(self, path: Path) -> None:
+    def get_shared_terms(
+        self,
+        doc1_index: int,
+        doc2_index: int,
+        embeddings: NDArray[np.float32],
+        top_n: int = 5,
+    ) -> list[tuple[str, float]]:
+        """
+        Get shared high-weight terms between two documents.
+
+        Finds terms that have significant TF-IDF scores in both documents,
+        which explains why they are semantically related.
+
+        Args:
+            doc1_index: Index of first document
+            doc2_index: Index of second document
+            embeddings: TF-IDF matrix
+            top_n: Number of shared terms to return
+
+        Returns:
+            List of (term, combined_score) tuples, sorted by importance
+        """
+        if not self._is_fitted:
+            raise ValueError("Vectorizer must be fitted first")
+
+        feature_names = self.get_feature_names()
+        vec1 = embeddings[doc1_index]
+        vec2 = embeddings[doc2_index]
+
+        # Find terms present in both documents (non-zero in both)
+        shared_mask = (vec1 > 0) & (vec2 > 0)
+
+        if not np.any(shared_mask):
+            return []
+
+        # Combined score: geometric mean of TF-IDF scores
+        combined_scores = np.sqrt(vec1 * vec2)
+        combined_scores[~shared_mask] = 0
+
+        # Get top shared terms
+        top_indices = np.argsort(combined_scores)[::-1][:top_n]
+
+        return [
+            (feature_names[idx], float(combined_scores[idx]))
+            for idx in top_indices
+            if combined_scores[idx] > 0
+        ]
+
+      def save(self, path: Path) -> None:
         """
         Save fitted vectorizer to file.
 

@@ -6,10 +6,39 @@ readme = "README.md"
 authors = [{ name = "Anumeya", email = "sagely2005eagle@gmail.com" }]
 license = { file = "LICENSE" }
 requires-python = ">=3.13"
-dependencies = ["rich>=14.2.0", "typer>=0.21.0"]
+dependencies = [
+    # CLI and display
+    "rich>=14.0.0",
+    "typer>=0.15.0",
+    # Preprocessing
+    "markdown-it-py>=3.0.0",
+    "pypdf>=4.2.0",
+    "python-docx>=1.1.0",
+    # Core (lightweight)
+    "scikit-learn>=1.5.0",
+    "numpy>=2.0.0",
+    # Graph
+    "networkx>=3.3",
+    # Storage
+    "orjson>=3.10.0",
+    "uvicorn>=0.41.0",
+    "fastapi>=0.135.1",
+]
+
+[project.optional-dependencies]
+# Neural embeddings (heavy - includes PyTorch)
+sbert = ["sentence-transformers>=3.0.0"]
+# OpenAI API embeddings
+openai = ["openai>=1.35.0", "tiktoken>=0.7.0"]
+# Visualization (optional)
+viz = ["pyvis>=0.3.2", "matplotlib>=3.9.0"]
+# Web server for React frontend
+server = ["fastapi>=0.115.0", "uvicorn>=0.34.0"]
+# All optional features
+all = ["semlink[sbert,openai,viz,server]"]
 
 [dependency-groups]
-dev = ["pre-commit>=4.5.1", "ruff>=0.14.10"]
+dev = ["pre-commit>=4.5.1", "ruff>=0.11.0", "pytest>=8.0.0"]
 
 [project.scripts]
 semlink = "semlink.__main__:app"
@@ -20,7 +49,7 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py313"
 format = { quote-style = "double" }
 
 [tool.commitizen]

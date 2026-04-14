@@ -1,15 +1,16 @@
-# Smart Semantic Note Linking and Visualizer
+# SemLink - Automatic Semantic Note Linking
 
-## Abstract
-[RESEARCH THE INCREASE IN USAGE OF DIGITAL NOTE TAKING AND INSERT STATISTICS HERE]
-[Talk about applications like obsidian and include research on the topics of graphical visualization being helpful in note taking]
+Transform unstructured markdown/text notes into an interconnected knowledge graph using semantic similarity analysis.
 
-As the volume of digital notes increases, manually creating meaningful links between related concepts becomes impractical. This project investigates automated semantic note linking using Natural Language Processing techniques to infer contextual relationships between unstructured notes and represent them as a knowledge graph.
+## Features
 
-## Problem Statement
-Graph-based note systems rely heavily on manual linking, which does not scale with large or long-term note collections. As a result, relationships between conceptually related notes remain unexpressed, limiting the usefulness of graph visualizations.
-
-This project addresses the problem of automatically identifying and representing semantic relationships between notes without user intervention.
+- **Automatic Link Discovery** - Infer semantic relationships between notes without manual linking
+- **Multiple Embedding Methods** - TF-IDF baseline, Sentence-BERT, or OpenAI embeddings
+- **Graph Visualization** - Interactive D3.js web interface or Pyvis HTML export
+- **Community Detection** - Discover topic clusters using Louvain algorithm
+- **Topic Aggregation** - Group related notes and generate topic summaries
+- **Incremental Updates** - SQLite storage for efficient vault synchronization
+- **Link Reasoning** - Understand why notes are connected with shared terms
 
 Similar solutions around "Document linking" for human interpretablity fall short by focusing on purely key-word matching approaches like [this one](https://forum.obsidian.md/t/obsidian-note-linker-automatically-find-and-create-new-links-between-notes/41504)
 
@@ -22,198 +23,194 @@ Some ideas for how to visualize the semantic linking is given [here](https://for
 - Analyze graph structure and semantic coherence
 - Provide a CLI tool that allows for easy usage
 
-## Evaluation Criteria
-- Similarity score distributions
-- Graph density and connectivity
-- Qualitative inspection of inferred links
-- Comparison between baseline and embedding-based methods
+## Installation
+
+```bash
+# Core installation (TF-IDF only, lightweight)
+pip install semlink
+
+# With neural embeddings (includes PyTorch)
+pip install semlink[sbert]
+
+# With OpenAI embeddings
+pip install semlink[openai]
+
+# With web server for React frontend
+pip install semlink[server]
+
+# With Pyvis visualization
+pip install semlink[viz]
+
+# Everything
+pip install semlink[all]
+```
+
+## Quick Start
+
+```bash
+# Run full pipeline on a vault
+semlink run ./my-notes --output ./output
+
+# Or use incremental sync with SQLite
+semlink sync ./my-notes --db .semlink.db
+
+# Start the web interface
+semlink serve --db .semlink.db
+
+# Aggregate notes into topics
+semlink aggregate output/graph.json --notes output/notes.json -o topics/
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `ingest` | Load and preprocess notes from a vault directory |
+| `embed` | Generate embeddings (TF-IDF, SBERT, or OpenAI) |
+| `link` | Infer links between notes based on similarity |
+| `analyze` | Compute graph metrics and detect communities |
+| `visualize` | Generate HTML, PNG, D3 JSON, or Obsidian export |
+| `compare` | Compare different embedding methods |
+| `run` | Full pipeline: ingest → embed → link → analyze → visualize |
+| `sync` | Incremental vault sync with SQLite storage |
+| `export` | Export graph from SQLite database |
+| `status` | Show database statistics |
+| `aggregate` | Group notes into topics by community |
+| `serve` | Start web server for React frontend |
+| `info` | Display available models and strategies |
+
+## Usage Examples
+
+### Basic Pipeline
+
+```bash
+# Process a vault with TF-IDF (default, lightweight)
+semlink run ./vault --output ./output
+
+# Use Sentence-BERT for better semantic matching
+semlink run ./vault --method sbert --output ./output
+
+# Filter weak links (< 25% similarity)
+semlink run ./vault --min-weight 0.25 --output ./output
+```
+
+### Incremental Workflow
+
+```bash
+# Initial sync (creates .semlink.db)
+semlink sync ./vault
+
+# Re-run after editing notes (only processes changes)
+semlink sync ./vault
+
+# Export graph for visualization
+semlink export --db .semlink.db -o graph.json
+
+# Check database status
+semlink status
+```
+
+### Web Interface
+
+```bash
+# Build frontend (first time only)
+cd frontend && npm install && npm run build && cd ..
+
+# Start server
+semlink serve --db .semlink.db
+
+# Opens at http://localhost:8000
+```
+
+### Topic Aggregation
+
+```bash
+# Generate topic clusters from graph
+semlink aggregate graph.json --notes notes.json --format markdown -o topics/
+
+# Export as Obsidian vault structure
+semlink aggregate graph.json --notes notes.json --format obsidian -o vault/
+
+# More granular topics (higher resolution)
+semlink aggregate graph.json --notes notes.json --resolution 1.5 -k 7
+```
+
+## Embedding Methods
+
+| Method | Description | Requirements |
+|--------|-------------|--------------|
+| `tfidf` | TF-IDF keyword matching (default) | scikit-learn |
+| `sbert` | Sentence-BERT semantic similarity | sentence-transformers |
+| `openai` | OpenAI text embeddings API | openai, tiktoken |
+
+## Link Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `threshold` | Connect notes with similarity ≥ threshold |
+| `knn` | Connect to k nearest neighbors |
+| `mutual_knn` | Connect only if mutually nearest |
+| `hybrid` | KNN + threshold (recommended) |
 
 ## Project Structure
 
-```bash
+```
 semlink/
-├── .github/
-│   ├── ISSUE_TEMPLATE/       # Issue Templates
-│   └── workflows/
-│       └── package.yml       # Workflow to make installable package and publish to pypi.org
-├── docs/                     # Installation and usage documentation
-├── research/                 # Research conducted over the course of this project
-├── src/
-│   └── semlink/
-│       ├── core/             # Core logic
-│       │   └── __init__.py
-│       ├── cli.py            # CLI interface
-│       ├── errors.py         # Central Error System
-│       ├── __init__.py
-│       └── __main__.py
-├── .pre-commit-config.yaml   # pre-commit hooks
-├── CONTRIBUTING.md
-├── LICENSE
-├── pyproject.toml
-├── README.md
-└── uv.lock                   # Installation lockfile
+├── frontend/              # React + D3.js web interface
+│   ├── src/
+│   │   ├── components/    # ForceGraph, SidePanel, ControlPanel
+│   │   ├── hooks/         # useGraphData
+│   │   └── types/         # TypeScript definitions
+│   └── package.json
+├── src/semlink/
+│   ├── core/
+│   │   ├── ingest.py      # Note discovery and preprocessing
+│   │   ├── chunk.py       # Chunking strategies
+│   │   ├── tfidf.py       # TF-IDF embeddings
+│   │   ├── embeddings.py  # SBERT, OpenAI embeddings
+│   │   ├── linker.py      # Link inference strategies
+│   │   ├── graph.py       # NetworkX graph building
+│   │   ├── analysis.py    # Metrics, community detection
+│   │   ├── visualize.py   # Pyvis, D3, Obsidian export
+│   │   ├── evaluate.py    # Method comparison
+│   │   ├── storage.py     # SQLite persistence
+│   │   └── aggregate.py   # Topic aggregation
+│   ├── server.py          # FastAPI backend
+│   └── cli.py             # Typer CLI
+└── pyproject.toml
 ```
 
-This project will follow the legacy `src` package layout for all core development. All logic is to be written in the `src/semlink/core/<file>.py` and required functionality is to be exposed via the `src/semlink/cli.py`
+## Development
 
----
+```bash
+# Clone and install
+git clone https://github.com/KreativeThinker/SemLink.git
+cd SemLink
+uv sync
 
-> Following are placeholder issues that will be migrated to the github issues panel along with a clearer instructions
+# Install pre-commit hooks
+pre-commit install
 
-## 1. Data Ingestion and Preprocessing
+# Run CLI
+uv run semlink --help
+```
 
-**Goal:** Standardize note input for downstream processing.
+## Abstract
 
-Tasks:
+The digital note-taking software market is experiencing significant growth, with projections reaching $1.35-1.5 billion by 2027-2028. Knowledge workers are increasingly adopting tools like Obsidian, Roam Research, and Logseq for personal knowledge management. However, **manual linking does not scale** beyond a few hundred notes, leaving valuable relationships unexpressed.
 
-* Load plain-text and Markdown files
-* Strip markup and normalize text
-* Handle file-level metadata (filename, path)
-* Store processed text representations
+This project addresses the problem of automatically identifying and representing semantic relationships between notes without user intervention, using NLP techniques to infer contextual relationships and represent them as a knowledge graph.
 
-Deliverables:
+## References
 
-* Preprocessing module
-* Sample input/output validation
-
----
-
-## 2. Note Segmentation (Chunking)
-
-**Goal:** Improve semantic resolution by operating on note segments.
-
-Tasks:
-
-* Implement whole-note representation
-* Implement paragraph-based segmentation
-* Store segment-to-note mappings
-
-Deliverables:
-
-* Chunking strategies with configurable parameters
-* Comparison-ready data structures
-
----
-
-## 3. Baseline Similarity: TF-IDF
-
-**Goal:** Establish a non-neural baseline.
-
-Tasks:
-
-* Build TF-IDF representations
-* Compute cosine similarity between notes or segments
-* Generate similarity matrix
-
-Deliverables:
-
-* Baseline similarity scores
-* Reproducible results for comparison
-
----
-
-## 4. Embedding-Based Similarity
-
-**Goal:** Capture semantic similarity beyond lexical overlap.
-
-Tasks:
-
-* Integrate pre-trained sentence/document embeddings
-* Generate vector representations for notes or segments
-* Compute cosine similarity
-
-Deliverables:
-
-* Embedding-based similarity matrices
-* Direct comparison with TF-IDF baseline
-
----
-
-## 5. Link Inference Strategy
-
-**Goal:** Convert similarity scores into graph edges.
-
-Tasks:
-
-* Implement similarity thresholding
-* Implement k-nearest-neighbor linking
-* Control graph sparsity
-
-Deliverables:
-
-* Configurable link inference logic
-* Edge list generation
-
----
-
-## 6. Graph Construction
-
-**Goal:** Represent inferred relationships formally.
-
-Tasks:
-
-* Construct graph from inferred links
-* Assign nodes and weighted edges
-* Export graph in standard format (e.g., NetworkX)
-
-Deliverables:
-
-* Graph object
-* Serialized graph output
-
----
-
-## 7. Graph Analysis
-
-**Goal:** Analyze structural properties of the note graph.
-
-Tasks:
-
-* Compute graph density and degree distribution
-* Identify connected components or clusters
-* Analyze central nodes
-
-Deliverables:
-
-* Quantitative graph metrics
-* Analysis scripts
-
----
-
-## 8. Evaluation and Comparison
-
-**Goal:** Evaluate semantic coherence and method effectiveness.
-
-Tasks:
-
-* Compare baseline vs embedding-based graphs
-* Analyze differences in connectivity and sparsity
-* Perform qualitative inspection on sampled links
-
-Deliverables:
-
-* Evaluation report
-* Plots or tables summarizing results
-
----
-
-## 9. Documentation and Reproducibility
-
-**Goal:** Ensure the project can be understood and rerun.
-
-Tasks:
-
-* Document configuration parameters
-* Describe experimental setup
-* Provide example datasets and commands
-
-Deliverables:
-
-* Updated README
-* Reproducibility notes
-
----
+- Arnold, M., Goldschmitt, M., & Rigotti, T. (2023). Dealing with information overload: A comprehensive review. *Frontiers in Psychology*, 14.
+- Karr-Wisniewski, P., & Lu, Y. (2010). When more is too much: Operationalizing technology overload. *Computers in Human Behavior*, 26(5), 1061-1072.
+- Li, H., et al. (2023). Knowledge graphs in practice: characterizing users, challenges, and visualization opportunities. *IEEE TVCG*.
 
 ## Contributing
 
-Please refer the guidelines as outlined in the [CONTRIBUTING](/CONTRIBUTING.md) file
+Please refer to the guidelines in [CONTRIBUTING.md](/CONTRIBUTING.md).
+
+## License
+
+MIT License - see [LICENSE](/LICENSE) for details.
