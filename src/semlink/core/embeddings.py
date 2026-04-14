@@ -7,6 +7,7 @@ including Sentence-BERT and optional OpenAI embeddings.
 
 from __future__ import annotations
 
+import re
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -14,6 +15,46 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
+
+
+def filter_invalid_texts(texts: list[str], min_ratio: float = 0.1) -> list[str]:
+    """
+    Filter out texts that are mostly binary/gibberish.
+
+    OpenAI embeddings API rejects texts with too many invalid characters.
+    This filters out texts that are:
+    - Mostly non-printable characters
+    - Binary/gibberish content (e.g., from corrupted PDFs)
+    - Too short or empty
+
+    Args:
+        texts: List of text strings
+        min_ratio: Minimum ratio of valid characters to keep (default 10%)
+
+    Returns:
+        Filtered list of texts
+    """
+    filtered = []
+    for text in texts:
+        if not text or not isinstance(text, str):
+            filtered.append("")
+            continue
+
+        text = text[:10000]
+
+        valid_chars = sum(1 for c in text if c.isprintable() or c in "\n\t\r ")
+        total_chars = max(len(text), 1)
+
+        if valid_chars / total_chars < min_ratio:
+            filtered.append("")
+        else:
+            cleaned = "".join(
+                c if (c.isprintable() or c in "\n\t\r ") else " " for c in text
+            )
+            cleaned = re.sub(r"\s+", " ", cleaned)
+            filtered.append(cleaned.strip())
+
+    return filtered
 
 
 class EmbedderBase(ABC):
@@ -269,11 +310,18 @@ class OpenAIEmbedder(EmbedderBase):
         """Encode texts using OpenAI API."""
         client = self._load_client()
 
+        filtered_texts = filter_invalid_texts(texts)
+
         all_embeddings = []
-        n_batches = (len(texts) + batch_size - 1) // batch_size
+        n_batches = (len(filtered_texts) + batch_size - 1) // batch_size
 
         for i in range(n_batches):
-            batch = texts[i * batch_size : (i + 1) * batch_size]
+            batch = filtered_texts[i * batch_size : (i + 1) * batch_size]
+
+            batch = [t if t else " " for t in batch]
+
+            if not any(t.strip() for t in batch):
+                continue
 
             kwargs = {"input": batch, "model": self.model_name}
             # Only v3 models support custom dimensions
