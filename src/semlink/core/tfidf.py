@@ -244,7 +244,7 @@ class TFIDFEmbedder:
             if combined_scores[idx] > 0
         ]
 
-      def save(self, path: Path) -> None:
+    def save(self, path: Path) -> None:
         """
         Save fitted vectorizer to file.
 
