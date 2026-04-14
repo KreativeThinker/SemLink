@@ -5,6 +5,7 @@ Groups notes by detected communities and generates topic summaries.
 """
 
 from __future__ import annotations
+import re
 
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ class Topic:
     note_titles: list[str]
     size: int
     central_notes: list[str] = field(default_factory=list)
+    confidence: float = 1.0
+    generation_method: str = "llm"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -39,6 +42,8 @@ class Topic:
             "note_titles": self.note_titles,
             "size": self.size,
             "central_notes": self.central_notes,
+            "confidence": self.confidence,
+            "generation_method": self.generation_method,
         }
 
 
@@ -59,6 +64,57 @@ class TopicAggregation:
         }
 
 
+CODE_KEYWORDS = {
+    "int",
+    "float",
+    "double",
+    "char",
+    "void",
+    "bool",
+    "return",
+    "printf",
+    "scanf",
+    "malloc",
+    "free",
+    "sizeof",
+    "if",
+    "else",
+    "for",
+    "while",
+    "switch",
+    "case",
+    "break",
+    "continue",
+    "struct",
+    "class",
+    "public",
+    "private",
+    "protected",
+    "def",
+    "import",
+    "from",
+    "export",
+    "async",
+    "await",
+    "let",
+    "const",
+    "var",
+    "function",
+    "module",
+    "require",
+    "include",
+    "using",
+    "namespace",
+    "new",
+    "delete",
+    "this",
+    "super",
+    "null",
+    "true",
+    "false",
+}
+
+
 def extract_topic_keywords(
     texts: list[str],
     n_keywords: int = 5,
@@ -66,51 +122,53 @@ def extract_topic_keywords(
     """
     Extract representative keywords from a collection of texts.
 
-    Uses TF-IDF to find the most important terms.
+    Uses TF-IDF to find the most important terms,
+    filtering out code keywords and short non-meaningful words.
     """
     if not texts:
         return []
 
-    # Filter out empty texts
     texts = [t for t in texts if t and t.strip()]
     if not texts:
         return []
 
-    # Combine texts and extract keywords
     combined = " ".join(texts)
     if not combined.strip():
         return []
 
     try:
-        # Use min_df=1 and max_df=1.0 since we're fitting on a single combined document
-        # This avoids the "max_df corresponds to < documents than min_df" error
         embedder = TFIDFEmbedder(
             max_features=1000,
             min_df=1,
-            max_df=1.0,  # Allow terms in all documents (we only have 1)
-            ngram_range=(1, 1),  # Only unigrams for keywords
+            max_df=1.0,
+            ngram_range=(1, 1),
         )
         embedder.fit_encode([combined])
 
-        # Get feature names and their scores
         if embedder.vectorizer is None:
             return []
 
         feature_names = embedder.vectorizer.get_feature_names_out()
         tfidf_matrix = embedder.vectorizer.transform([combined])
 
-        # Get top keywords by TF-IDF score
         scores = tfidf_matrix.toarray()[0]
-        top_indices = scores.argsort()[-n_keywords:][::-1]
+        top_indices = scores.argsort()[-n_keywords * 2 :][::-1]
 
-        return [str(feature_names[i]) for i in top_indices if scores[i] > 0]
+        keywords = []
+        for i in top_indices:
+            if scores[i] > 0:
+                kw = str(feature_names[i])
+                if is_meaningful_keyword(kw):
+                    keywords.append(kw)
+                if len(keywords) >= n_keywords:
+                    break
+
+        return keywords
     except Exception:
-        # Fall back to simple word frequency if TF-IDF fails
         words = combined.lower().split()
         word_counts: dict[str, int] = {}
         for word in words:
-            # Filter short words and common stop words
-            if len(word) > 3 and word.isalpha():
+            if len(word) > 3 and word.isalpha() and is_meaningful_keyword(word):
                 word_counts[word] = word_counts.get(word, 0) + 1
 
         if not word_counts:
@@ -120,28 +178,122 @@ def extract_topic_keywords(
         return [w[0] for w in sorted_words[:n_keywords]]
 
 
-def generate_topic_label(keywords: list[str], note_titles: list[str]) -> str:
+def is_meaningful_keyword(keyword: str) -> bool:
+    """Check if a keyword is meaningful for topic labels."""
+    kw = keyword.lower()
+    if len(kw) < 3:
+        return False
+    if kw in CODE_KEYWORDS:
+        return False
+    if kw.isdigit():
+        return False
+    if re.fullmatch(r"[a-z]{1,2}\d+", kw):
+        return False
+    if re.fullmatch(r"\d+[a-z]{1,2}", kw):
+        return False
+    return True
+
+
+def generate_topic_label(
+    keywords: list[str],
+    note_titles: list[str],
+    central_note_ids: list[str] | None = None,
+    note_ids: list[str] | None = None,
+) -> str:
     """
     Generate a human-readable topic label.
 
-    Combines top keywords into a descriptive label.
-    """
-    if not keywords:
-        # Fall back to common words in titles
-        if note_titles:
-            title_words = " ".join(note_titles).lower().split()
-            word_counts = defaultdict(int)
-            for word in title_words:
-                if len(word) > 3:  # Skip short words
-                    word_counts[word] += 1
-            if word_counts:
-                top_words = sorted(word_counts.items(), key=lambda x: -x[1])[:3]
-                return " & ".join(w[0].title() for w in top_words)
-        return "Miscellaneous"
+    Priority:
+    1. Most central note's title (best for topic clarity)
+    2. If no central notes, use keywords (but improved)
+    3. Fall back to keywords + word cloud from titles
 
-    # Use top 2-3 keywords as label
-    label_keywords = keywords[:3]
-    return " & ".join(k.title() for k in label_keywords)
+    Args:
+        keywords: TF-IDF keywords for the topic
+        note_titles: All note titles in the topic
+        central_note_ids: IDs of most central notes (by PageRank)
+        note_ids: All note IDs in order
+    """
+    if central_note_ids and note_ids and note_titles:
+        if central_note_ids and len(central_note_ids) > 0:
+            central_idx = note_ids.index(central_note_ids[0])
+            if central_idx < len(note_titles):
+                central_title = note_titles[central_idx]
+                if central_title and len(central_title.strip()) > 0:
+                    clean_title = clean_topic_label(central_title)
+                    if clean_title:
+                        return clean_title
+
+    if keywords:
+        meaningful_keywords = [
+            k for k in keywords if len(k) > 2 and not is_common_word(k)
+        ]
+        if meaningful_keywords:
+            return meaningful_keywords[0].title()
+
+    if note_titles:
+        common = find_common_words(note_titles, min_len=4, top_n=3)
+        if common:
+            return common[0].title() if common else "Topic"
+
+    return "General Notes"
+
+
+def clean_topic_label(title: str) -> str:
+    """Clean a note title to use as topic label."""
+    cleaned = re.sub(r"\d+Bai\d+", "", title)
+    cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def is_common_word(word: str) -> bool:
+    """Check if word is too common to be meaningful."""
+    common = {
+        "note",
+        "notes",
+        "file",
+        "files",
+        "data",
+        "information",
+        "content",
+        "document",
+        "documents",
+        "writing",
+        "writing",
+        "thought",
+        "thoughts",
+        "idea",
+        "ideas",
+        "summary",
+        "review",
+        "test",
+        "question",
+        "answer",
+        "examples",
+        "notes",
+    }
+    return word.lower() in common
+
+
+def find_common_words(
+    note_titles: list[str], min_len: int = 4, top_n: int = 3
+) -> list[str]:
+    """Find the most common words across note titles."""
+    word_counts: dict[str, int] = defaultdict(int)
+    for title in note_titles:
+        words = re.findall(r"\b[a-zA-Z]{" + str(min_len) + r",}\b", title.lower())
+        for word in words:
+            if not is_common_word(word):
+                word_counts[word] += 1
+    if not word_counts:
+        words = re.findall(
+            r"\b[a-zA-Z]{" + str(min_len) + r",}\b", " ".join(note_titles).lower()
+        )
+        for word in set(words):
+            word_counts[word] = 1
+    sorted_words = sorted(word_counts.items(), key=lambda x: -x[1])
+    return [w[0] for w in sorted_words[:top_n]]
 
 
 def aggregate_by_topic(
@@ -150,6 +302,7 @@ def aggregate_by_topic(
     min_cluster_size: int = 2,
     resolution: float = 1.0,
     n_keywords: int = 5,
+    topic_generator: Any = None,
 ) -> TopicAggregation:
     """
     Group notes by detected communities and generate topic summaries.
@@ -160,6 +313,7 @@ def aggregate_by_topic(
         min_cluster_size: Minimum notes to form a topic (smaller clusters become orphans)
         resolution: Louvain resolution parameter (higher = more clusters)
         n_keywords: Number of keywords to extract per topic
+        topic_generator: Optional TopicGenerator for LLM-based labels
 
     Returns:
         TopicAggregation with topics, mappings, and orphan notes
@@ -202,15 +356,33 @@ def aggregate_by_topic(
         # Extract keywords from cluster content
         keywords = extract_topic_keywords(texts, n_keywords=n_keywords)
 
-        # Generate label
-        label = generate_topic_label(keywords, note_titles)
-
-        # Find central notes (highest PageRank in cluster)
+        # Find central notes FIRST (highest PageRank in cluster)
         central_notes = sorted(
             note_ids,
             key=lambda n: pagerank.get(n, 0),
             reverse=True,
         )[:3]
+
+        # Generate label - use LLM if available, otherwise fallback
+        confidence = 0.5
+        generation_method = "keywords"
+        if topic_generator is not None:
+            try:
+                llm_label = topic_generator.generate_topic_label(note_titles, texts)
+                if llm_label and llm_label.label and llm_label.confidence > 0.5:
+                    label = llm_label.label
+                    confidence = llm_label.confidence
+                    generation_method = llm_label.method or "llm"
+                else:
+                    label = generate_topic_label(
+                        keywords, note_titles, central_notes, note_ids
+                    )
+            except Exception:
+                label = generate_topic_label(
+                    keywords, note_titles, central_notes, note_ids
+                )
+        else:
+            label = generate_topic_label(keywords, note_titles, central_notes, note_ids)
 
         topic = Topic(
             id=topic_id,
@@ -220,6 +392,8 @@ def aggregate_by_topic(
             note_titles=note_titles,
             size=len(note_ids),
             central_notes=central_notes,
+            confidence=confidence,
+            generation_method=generation_method,
         )
         topics.append(topic)
 
