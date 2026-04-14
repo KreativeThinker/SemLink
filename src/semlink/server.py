@@ -84,10 +84,18 @@ def _build_graph_from_db(db: SemLinkDB, method: str | None = None) -> nx.Graph:
     return graph
 
 
+def _get_topic_generator(state: Any) -> Any:
+    """Get the topic generator from app state."""
+    if hasattr(state, "topic_generator") and state.topic_generator is not None:
+        return state.topic_generator
+    return None
+
+
 def _compute_topics_for_graph(
     graph: nx.Graph,
     notes_dict: dict[str, dict[str, Any]],
     resolution: float = 1.0,
+    topic_generator: Any = None,
 ) -> dict[str, Any]:
     """Compute topic aggregation for a graph."""
     if graph.number_of_nodes() == 0:
@@ -104,6 +112,7 @@ def _compute_topics_for_graph(
         min_cluster_size=2,
         resolution=resolution,
         n_keywords=5,
+        topic_generator=topic_generator,
     )
 
     # Build topic_id -> label mapping
@@ -143,6 +152,8 @@ def create_app(
     graph_path: Path | None = None,
     notes_path: Path | None = None,
     static_dir: Path | None = None,
+    topic_method: str = "llm",
+    topic_model: str = "gpt-4o-mini",
 ) -> FastAPI:
     """
     Create FastAPI application.
@@ -152,6 +163,8 @@ def create_app(
         graph_path: Path to graph JSON file (optional)
         notes_path: Path to notes JSON file (optional, for content with graph files)
         static_dir: Path to static files directory (frontend build)
+        topic_method: Topic generation method ("llm" or "keywords")
+        topic_model: LLM model for topic generation
     """
     app = FastAPI(
         title="SemLink API",
@@ -172,6 +185,21 @@ def create_app(
     app.state.db_path = db_path
     app.state.graph_path = graph_path
     app.state.notes_path = notes_path
+    app.state.topic_method = topic_method
+    app.state.topic_model = topic_model
+
+    # Initialize topic generator
+    app.state.topic_generator = None
+    if topic_method == "llm":
+        try:
+            from semlink.core.topic_llm import create_topic_generator, is_available
+
+            if is_available("openai"):
+                app.state.topic_generator = create_topic_generator(
+                    "openai", topic_model
+                )
+        except Exception:
+            pass
 
     # Pre-load notes if path provided
     app.state.notes_cache = {}
@@ -210,7 +238,9 @@ def create_app(
                     }
                     for n in db_notes
                 }
-                topic_data = _compute_topics_for_graph(graph, notes_dict)
+                topic_data = _compute_topics_for_graph(
+                    graph, notes_dict, topic_generator=app.state.topic_generator
+                )
                 note_to_topic = topic_data["note_to_topic"]
                 topic_labels = topic_data["topic_labels"]
 
@@ -272,7 +302,9 @@ def create_app(
                             "content": data.get("content", ""),
                             "clean_content": data.get("content", ""),
                         }
-                topic_data = _compute_topics_for_graph(graph, notes_dict)
+                topic_data = _compute_topics_for_graph(
+                    graph, notes_dict, topic_generator=app.state.topic_generator
+                )
                 note_to_topic = topic_data["note_to_topic"]
                 topic_labels = topic_data["topic_labels"]
 
@@ -355,6 +387,7 @@ def create_app(
                 min_cluster_size=min_cluster_size,
                 resolution=resolution,
                 n_keywords=5,
+                topic_generator=_get_topic_generator(app.state),
             )
 
             topics = [
@@ -403,6 +436,7 @@ def create_app(
                 min_cluster_size=min_cluster_size,
                 resolution=resolution,
                 n_keywords=5,
+                topic_generator=_get_topic_generator(app.state),
             )
 
             topics = [

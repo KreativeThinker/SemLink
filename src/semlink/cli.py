@@ -1377,6 +1377,20 @@ def aggregate(
         int,
         typer.Option("--keywords", "-k", help="Number of keywords per topic"),
     ] = 5,
+    topic_method: Annotated[
+        str,
+        typer.Option(
+            "--topic-method",
+            help="Topic label generation: llm (OpenAI) or keywords (fallback)",
+        ),
+    ] = "keywords",
+    topic_model: Annotated[
+        str,
+        typer.Option(
+            "--topic-model",
+            help="LLM model for topic generation (e.g., gpt-4o-mini)",
+        ),
+    ] = "gpt-4o-mini",
 ) -> None:
     """
     Aggregate notes into topics based on community detection.
@@ -1391,8 +1405,21 @@ def aggregate(
     )
     from semlink.core.graph import load_json
     from semlink.core.ingest import NoteStore
+    from semlink.core.topic_llm import create_topic_generator, is_available
 
     try:
+        topic_generator = None
+        if topic_method == "llm":
+            if is_available("openai"):
+                topic_generator = create_topic_generator("openai", topic_model)
+                console.print(f"[dim]Using LLM for topic labels: {topic_model}[/dim]")
+            else:
+                console.print(
+                    "[yellow]Warning:[/yellow] OpenAI not available, using keywords"
+                )
+        else:
+            console.print("[dim]Using keyword-based topic labels[/dim]")
+
         console.print("[bold]Aggregating notes into topics[/bold]")
         console.print(f"[dim]Graph: {graph_path}[/dim]")
         console.print(f"[dim]Notes: {notes_path}[/dim]")
@@ -1436,6 +1463,7 @@ def aggregate(
                 min_cluster_size=min_size,
                 resolution=resolution,
                 n_keywords=keywords,
+                topic_generator=topic_generator,
             )
             progress.update(task, description="Topics detected")
 
