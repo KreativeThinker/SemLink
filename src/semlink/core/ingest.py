@@ -42,7 +42,7 @@ EXCLUDED_DIRS = {
 }
 
 # Specific filenames or patterns that add semantic noise
-EXCLUDED_FILE_PATTERNS = {
+DEFAULT_EXCLUDED_FILE_PATTERNS = {
     "LICENSE*",
     "COPYING*",
     "*.lock",
@@ -56,7 +56,91 @@ EXCLUDED_FILE_PATTERNS = {
     "*.so",
     "*.exe",
     "*.dll",
+    "PCG64",
+    "SFC64",
 }
+
+
+def load_ignore_patterns(vault_path: Path) -> set[str]:
+    """
+    Load ignore patterns from .semLinkIgnore file in vault root.
+
+    Supports gitignore-style patterns:
+    - # comments
+    - * wildcard
+    - ? single character
+    - [abc] character classes
+    - ** recursive directories
+    - / directory separators
+    - ! negation
+
+    Args:
+        vault_path: Path to vault directory
+
+    Returns:
+        Set of ignore patterns
+    """
+    ignore_file = vault_path / ".semLinkIgnore"
+    patterns: set[str] = set()
+
+    if not ignore_file.exists():
+        return patterns
+
+    try:
+        for line in ignore_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            patterns.add(line)
+    except Exception:
+        pass
+
+    return patterns
+
+
+def should_ignore_file(
+    relative_path: str,
+    ignore_patterns: set[str],
+    is_dir: bool = False,
+) -> bool:
+    """
+    Check if a file should be ignored based on patterns.
+
+    Args:
+        relative_path: Path relative to vault root (e.g., "notes/todo.md")
+        ignore_patterns: Set of patterns from .semLinkIgnore
+        is_dir: Whether this is a directory
+
+    Returns:
+        True if file should be ignored
+    """
+    for pattern in ignore_patterns:
+        if pattern.startswith("!"):
+            continue
+
+        if pattern.endswith("/"):
+            dir_pattern = pattern.rstrip("/")
+            if relative_path.startswith(dir_pattern + "/"):
+                return True
+            if relative_path == dir_pattern:
+                return True
+        elif pattern.startswith("**/"):
+            if relative_path.endswith(pattern[4:]):
+                return True
+        elif "**" in pattern:
+            parts = pattern.split("**")
+            if len(parts) == 2:
+                if relative_path.startswith(parts[0]) and (
+                    relative_path.endswith(parts[1]) or parts[1] in relative_path
+                ):
+                    return True
+        else:
+            if fnmatch.fnmatch(relative_path, pattern):
+                return True
+            if fnmatch.fnmatch(Path(relative_path).name, pattern):
+                return True
+
+    return False
 
 
 @dataclass
@@ -109,7 +193,9 @@ class Note:
 
 
 def discover_notes(
-    vault_path: Path, extensions: tuple[str, ...] = (".md", ".txt")
+    vault_path: Path,
+    extensions: tuple[str, ...] = (".md", ".txt"),
+    ignore_patterns: set[str] | None = None,
 ) -> Iterator[Path]:
     """
     Recursively discover note files in a vault directory.
@@ -117,6 +203,7 @@ def discover_notes(
     Args:
         vault_path: Root directory to search
         extensions: File extensions to include
+        ignore_patterns: Custom ignore patterns (loaded from .semLinkIgnore if not provided)
 
     Yields:
         Path objects for each discovered note file
@@ -125,17 +212,36 @@ def discover_notes(
     if not vault_path.is_dir():
         raise NotADirectoryError(f"Vault path is not a directory: {vault_path}")
 
+    if ignore_patterns is None:
+        ignore_patterns = load_ignore_patterns(vault_path)
+
     for root, dirs, files in os.walk(vault_path, topdown=True):
-        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not d.startswith(".")]
+        root_rel = root.replace(str(vault_path), "").lstrip(os.sep)
+
+        dirs[:] = [
+            d
+            for d in dirs
+            if d not in EXCLUDED_DIRS
+            and not d.startswith(".")
+            and not should_ignore_file(
+                str(Path(root_rel) / d) if root_rel else d,
+                ignore_patterns,
+                is_dir=True,
+            )
+        ]
 
         for file in files:
-            # Skip hidden files (e.g., .env)
+            file_rel = str(Path(root_rel) / file) if root_rel else file
+
             if file.startswith("."):
                 continue
 
-            # Skip noise files matching our exclusion patterns
+            if should_ignore_file(file_rel, ignore_patterns):
+                continue
+
             if any(
-                fnmatch.fnmatch(file, pattern) for pattern in EXCLUDED_FILE_PATTERNS
+                fnmatch.fnmatch(file, pattern)
+                for pattern in DEFAULT_EXCLUDED_FILE_PATTERNS
             ):
                 continue
 
@@ -450,3 +556,6 @@ def ingest_vault(
         store.add(note)
 
     return store
+
+
+EXCLUDED_FILE_PATTERNS = DEFAULT_EXCLUDED_FILE_PATTERNS
